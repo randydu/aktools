@@ -1,5 +1,21 @@
 # ChangeLog
 
+## 0.0.96
+
+### Added
+
+- SQLite-backed API token auth — replaces hardcoded `akshare`/`akfamily` credentials
+- Auto-bootstrapped root token on first startup (printed to log)
+- Pre-configured token file via `AKTOOLS_TOKENS_FILE` env var (JSON, filesystem-permission protected)
+- US stock universal APIs — `stock_us_list` (daily cache), `stock_us_spot` (60s cache), `stock_us_hist` (multi-source)
+- `GET /api/public/v1/stock_us_search` — fuzzy search on US stock cache
+- Mutating endpoints moved to `/api/private/v1/` requiring auth: cache pause/resume, default_source set, token CRUD
+
+### Changed
+
+- `POST /auth/token` now returns 410 — old credentials deprecated
+- Cache management and default_source POST now require Bearer token
+
 ## 0.0.95
 
 ### Added
