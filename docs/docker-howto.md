@@ -28,6 +28,7 @@ curl http://127.0.0.1:8080/version
 | `AKSHARE_PROXY` | 否 | 空 | HTTP/HTTPS 代理地址，如 `http://host.docker.internal:7890` |
 | `AKSHARE_DEFAULT_SOURCE` | 否 | `eastmoney` | 默认数据源：`eastmoney` / `sina` / `tencent` |
 `AKTOOLS_TOKENS_FILE` | 否 | 空 | 预配置 Token 的 JSON 文件路径 |
+`AKTOOLS_DATA_DIR` | 否 | `./data/` | 持久化数据目录（缓存、日志、Token） |
 
 ### 海外用户配置
 

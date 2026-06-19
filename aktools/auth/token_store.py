@@ -10,7 +10,9 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "tokens.db")
+_DATA_DIR = os.environ.get("AKTOOLS_DATA_DIR", os.path.join(os.getcwd(), "data"))
+os.makedirs(_DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(_DATA_DIR, "tokens.db")
 
 
 def _now() -> str:

@@ -99,6 +99,34 @@ curl "http://127.0.0.1:8080/api/public/stock_hk_daily?symbol=00700&start_date=20
 
 ---
 
+## 数据接口 — V1 板块
+
+### 行业板块列表
+
+`GET /api/public/v1/board_industry_list` — 每日缓存，A 股行业板块名称
+
+### 概念板块列表
+
+`GET /api/public/v1/board_concept_list` — 每日缓存，A 股概念板块名称
+
+### 行业板块行情
+
+`GET /api/public/v1/board_industry_spot?symbol=半导体`
+
+### 概念板块行情
+
+`GET /api/public/v1/board_concept_spot?symbol=元宇宙`
+
+### 行业板块历史指数
+
+`GET /api/public/v1/board_industry_hist?symbol=元件&start_date=20240101&end_date=20250101`
+
+### 概念板块历史指数
+
+`GET /api/public/v1/board_concept_hist?symbol=阿里巴巴概念`
+
+---
+
 ## 数据接口 — V1 可转债
 
 ### 可转债列表
@@ -656,3 +684,5 @@ curl -H "Authorization: Bearer akt_..." \
 | `AKSHARE_PROXY` | HTTP/HTTPS 代理，如 `http://127.0.0.1:7890` | 无 |
 | `AKSHARE_DEFAULT_SOURCE` | V1 历史接口默认数据源 | `eastmoney` |
 | `AKTOOLS_TOKENS_FILE` | 预配置 Token 的 JSON 文件路径 | 无 |
+| `AKTOOLS_DATA_DIR` | 持久化数据目录（缓存、日志、Token），默认 `./data/` | `./data/` |
+| `AKTOOLS_LOG_LEVEL` | 日志级别：`DEBUG` / `INFO` / `WARNING` / `ERROR` | `INFO` |

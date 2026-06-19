@@ -100,8 +100,9 @@ Changelog
 0.0.95: add: fund/ETF APIs, search, smart cache engine, pagination
 0.0.96: add: token auth, US stock APIs, private/v1 management endpoints
 0.0.97: add: HK, LOF, open-fund, futures, index, bond APIs + per-key cache control
+0.1.0: first stable release of universal v1 API layer
 """
 
 __title__ = "AKTools"
-__version__ = "0.0.97"
+__version__ = "0.1.0"
 __author__ = "AKFamily"

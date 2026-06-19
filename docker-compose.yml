@@ -11,7 +11,18 @@ services:
       AKSHARE_PROXY: ""
       # 默认数据源: eastmoney / sina / tencent（海外用户推荐 sina 或 tencent）
       AKSHARE_DEFAULT_SOURCE: "eastmoney"
+      # ---- 日志 ----
+      # 日志级别: DEBUG / INFO / WARNING / ERROR
+      AKTOOLS_LOG_LEVEL: INFO
+      # ---- 数据目录 ----
+      # 缓存、日志、Token 等持久化数据的存放目录（默认 ./data/）
+      AKTOOLS_DATA_DIR: /data/aktools
       # ---- 认证 ----
       # 预配置 Token 的 JSON 文件路径（可选，文件权限应设为 600）
       # AKTOOLS_TOKENS_FILE: /run/secrets/aktools_tokens
+    volumes:
+      - aktools_data:/data/aktools
     restart: unless-stopped
+
+volumes:
+  aktools_data:

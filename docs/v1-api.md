@@ -1,6 +1,6 @@
 # V1 API
 
-AKTools v0.0.91+ 新增的版本化 API，提供多数据源切换、代理支持和自动重试。
+AKTools v0.1.0 版本化 API — 30+ 端点覆盖十大品类，智能缓存引擎，多数据源切换。
 
 ---
 
@@ -163,6 +163,22 @@ curl "http://127.0.0.1:8080/api/public/v1/fund_open_hist?symbol=710001"
 ```sh
 curl "http://127.0.0.1:8080/api/public/v1/fund_list?page=1&page_size=50"
 ```
+
+---
+
+## 板块接口
+
+### 行业板块
+
+`GET /api/public/v1/board_industry_list` — 每日缓存
+`GET /api/public/v1/board_industry_spot?symbol=半导体`
+`GET /api/public/v1/board_industry_hist?symbol=元件`
+
+### 概念板块
+
+`GET /api/public/v1/board_concept_list` — 每日缓存
+`GET /api/public/v1/board_concept_spot?symbol=元宇宙`
+`GET /api/public/v1/board_concept_hist?symbol=阿里巴巴概念`
 
 ---
 
@@ -353,3 +369,4 @@ Warning: 110 - "Response is Stale"
 | `AKSHARE_PROXY` | HTTP/HTTPS 代理地址 | 无（直连） |
 | `AKSHARE_DEFAULT_SOURCE` | 默认数据源 | `eastmoney` |
 | `AKTOOLS_TOKENS_FILE` | 预配置 Token JSON 文件路径 | 无 |
+| `AKTOOLS_DATA_DIR` | 持久化数据目录，默认 `./data/` | `./data/` |

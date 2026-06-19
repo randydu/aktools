@@ -35,6 +35,10 @@ RETRY_DELAY_SECONDS = 5
 
 # ── 统一 A 股历史行情数据源配置 ──────────────────────────────────
 # 环境变量 AKSHARE_DEFAULT_SOURCE 设置默认源，可选: eastmoney / sina / tencent
+# ── 数据目录（Docker 友好） ──────────────────────────────────────
+_DATA_DIR = os.getenv("AKTOOLS_DATA_DIR", os.path.join(os.getcwd(), "data"))
+os.makedirs(_DATA_DIR, exist_ok=True)
+
 DEFAULT_SOURCE = os.getenv("AKSHARE_DEFAULT_SOURCE", "eastmoney")  # mutable — changed by /api/v1/default_source
 
 _SOURCE_MAP = {
@@ -75,7 +79,45 @@ _STATIC_CACHE_MAP = {
     "stock_list": ak.stock_info_a_code_name,
     "fund_list": ak.fund_name_em,
     "stock_us_list": ak.get_us_stock_name,
+    "board_industry_list": ak.stock_board_industry_name_em,
+    "board_concept_list": ak.stock_board_concept_name_em,
+    "stock_profile": None,  # built from constituent data below
 }
+
+
+def _build_stock_profile():
+    """Build a {code: {industry, concepts}} lookup from constituent data.
+    Runs during daily cache refresh. Empty on any failure — retry next cycle."""
+    try:
+        profile = {}
+        # Industry mapping
+        industries = ak.stock_board_industry_name_em()
+        for _, row in industries.iterrows():
+            name = str(row.iloc[1] if len(row) > 1 else row.iloc[0])
+            try:
+                cons = ak.stock_board_industry_cons_em(symbol=name)
+                code_col = "代码" if "代码" in cons.columns else cons.columns[0]
+                for _, crow in cons.iterrows():
+                    code = str(crow[code_col])
+                    profile.setdefault(code, {})["industry"] = name
+            except Exception:
+                continue
+        # Concept mapping
+        concepts = ak.stock_board_concept_name_em()
+        for _, row in concepts.iterrows():
+            name = str(row.iloc[1] if len(row) > 1 else row.iloc[0])
+            try:
+                cons = ak.stock_board_concept_cons_em(symbol=name)
+                code_col = "代码" if "代码" in cons.columns else cons.columns[0]
+                for _, crow in cons.iterrows():
+                    code = str(crow[code_col])
+                    profile.setdefault(code, {}).setdefault("concepts", []).append(name)
+            except Exception:
+                continue
+        # Convert to list of dicts for JSON serialization
+        return [{"code": k, **v} for k, v in profile.items()]
+    except Exception:
+        return None
 
 # ── 缓存（后台线程定期刷新） ──────────────────────────────────
 _CACHE_TTL = 60          # 实时行情刷新间隔（秒）
@@ -86,6 +128,57 @@ _spot_cache_warm = threading.Event()  # 首次刷新完成后置位
 _paused_keys = set()                  # 暂停的缓存 key，含 "*" 表示全局暂停
 _paused_lock = threading.Lock()
 _CACHE_TTL_OFF = 300                  # 非交易时段刷新间隔（秒）
+
+# ── 缓存持久化到 SQLite ──────────────────────────────────────
+import sqlite3 as _sqlite3
+_CACHE_DB = os.path.join(_DATA_DIR, "cache.db")
+
+
+def _persist_cache_to_db():
+    """Write all in-memory cache entries to SQLite (WAL mode, crash-safe)."""
+    with _spot_cache_lock:
+        if not _spot_cache:
+            return
+        try:
+            conn = _sqlite3.connect(_CACHE_DB)
+            conn.execute("PRAGMA journal_mode=WAL")       # crash-safe atomic commits
+            conn.execute("PRAGMA synchronous=NORMAL")     # balance safety & speed
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS persisted_cache "
+                "(key TEXT PRIMARY KEY, data TEXT, ts REAL)"
+            )
+            conn.execute("BEGIN IMMEDIATE")
+            for key, entry in _spot_cache.items():
+                data_json = json.dumps(entry["data"], ensure_ascii=False)
+                conn.execute(
+                    "INSERT OR REPLACE INTO persisted_cache VALUES (?, ?, ?)",
+                    (key, data_json, entry["ts"]),
+                )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass  # persistence is best-effort
+
+
+def _load_cache_from_db():
+    """Restore cache from SQLite on startup."""
+    try:
+        conn = _sqlite3.connect(_CACHE_DB)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS persisted_cache "
+            "(key TEXT PRIMARY KEY, data TEXT, ts REAL)"
+        )
+        rows = conn.execute("SELECT key, data, ts FROM persisted_cache").fetchall()
+        conn.close()
+        if rows:
+            with _spot_cache_lock:
+                for key, data_json, ts in rows:
+                    _spot_cache[key] = {"data": json.loads(data_json), "ts": ts}
+            logger.info(f"从 cache.db 恢复了 {len(rows)} 个缓存项")
+            return True
+    except Exception:
+        pass
+    return False
 
 # A 股交易时段 (北京时间)
 _MARKET_SESSIONS = [
@@ -119,6 +212,9 @@ def _refresh_cache():
         cycle += 1
         market_open = _is_market_open()
         ttl = _CACHE_TTL if market_open else _CACHE_TTL_OFF
+        cycle_start = time.time()
+        succeeded = 0
+        failed = 0
         # 刷新实时行情（每周期）— A 股
         for source, func in _SPOT_SOURCE_MAP.items():
             try:
@@ -128,8 +224,10 @@ def _refresh_cache():
                     with _spot_cache_lock:
                         _spot_cache["stock_spot_" + source] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: stock_spot_{source} ({len(data)} 条)")
+                    succeeded += 1
             except Exception as e:
                 logger.warning(f"刷新缓存失败 [stock_spot_{source}]: {e}")
+                failed += 1
         # 刷新实时行情（每周期）— ETF
         for source, func in _FUND_SPOT_SOURCE_MAP.items():
             try:
@@ -139,8 +237,10 @@ def _refresh_cache():
                     with _spot_cache_lock:
                         _spot_cache["fund_etf_spot"] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: fund_etf_spot ({len(data)} 条)")
+                    succeeded += 1
             except Exception as e:
                 logger.warning(f"刷新缓存失败 [fund_etf_spot]: {e}")
+                failed += 1
         # 刷新实时行情（每周期）— US
         for source, func in _US_SPOT_SOURCE_MAP.items():
             try:
@@ -150,29 +250,52 @@ def _refresh_cache():
                     with _spot_cache_lock:
                         _spot_cache["stock_us_spot"] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: stock_us_spot ({len(data)} 条)")
+                    succeeded += 1
             except Exception as e:
                 logger.warning(f"刷新缓存失败 [stock_us_spot]: {e}")
+                failed += 1
 
         # 静态数据仅在启动或每 _static_interval 个周期刷新
         if cycle == 1 or cycle % _static_interval == 0:
             for key, func in _STATIC_CACHE_MAP.items():
                 try:
-                    df = func()
-                    if df is not None:
-                        data = json.loads(df.to_json(orient="records", date_format="iso"))
-                        # 清理名称中的空白字符（如 "柳    工" → "柳工"）
-                        for row in data:
-                            if "name" in row and isinstance(row["name"], str):
+                    if func is None and key == "stock_profile":
+                        data = _build_stock_profile()
+                    else:
+                        df = func()
+                        if df is not None:
+                            data = json.loads(df.to_json(orient="records", date_format="iso"))
+                        else:
+                            data = None
+                    if data is not None:
+                        # 清理名称中的空白字符
+                        for row in (data if isinstance(data, list) else []):
+                            if isinstance(row, dict) and "name" in row and isinstance(row["name"], str):
                                 row["name"] = "".join(row["name"].split())
                         with _spot_cache_lock:
                             _spot_cache[key] = {"data": data, "ts": time.time()}
                         logger.info(f"缓存已刷新: {key} ({len(data)} 条)")
+                        succeeded += 1
                 except Exception as e:
                     logger.warning(f"刷新缓存失败 [{key}]: {e}")
+                    failed += 1
         if cycle == 1:
             _spot_cache_warm.set()
+        elapsed = int((time.time() - cycle_start) * 1000)
+        logger.info(
+            f"刷新周期 #{cycle} 完成: {succeeded} 成功, {failed} 失败, "
+            f"耗时 {elapsed}ms, 下次 {ttl}s 后"
+            f"({'交易时段' if market_open else '非交易时段'})"
+        )
+        _persist_cache_to_db()
         time.sleep(ttl)
 
+
+# 启动时从 SQLite 恢复缓存（若有），避免冷启动等待
+_restored = _load_cache_from_db()
+if _restored:
+    _spot_cache_warm.set()  # 恢复后可立即服务
+    logger.info("缓存已从磁盘恢复，预热完成")
 
 _refresh_thread = threading.Thread(target=_refresh_cache, daemon=True)
 _refresh_thread.start()
@@ -229,13 +352,14 @@ def _call_akshare_direct(func, **kwargs):
 
 
 # 创建一个日志记录器
-logger = logging.getLogger(name='AKToolsLog')
-logger.setLevel(logging.INFO)
+_LOG_LEVEL = os.getenv("AKTOOLS_LOG_LEVEL", "INFO").upper()
+logger = logging.getLogger(name="AKToolsLog")
+logger.setLevel(getattr(logging, _LOG_LEVEL, logging.INFO))
 
 # 创建一个TimedRotatingFileHandler来进行日志轮转
 handler = TimedRotatingFileHandler(
-    filename='/tmp/aktools_log.log' if os.getenv('VERCEL') == '1' else 'aktools_log.log',
-        when='midnight', interval=1, backupCount=7, encoding='utf-8'
+    filename=os.path.join(_DATA_DIR, 'aktools.log'),
+    when='midnight', interval=1, backupCount=7, encoding='utf-8'
 )
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
@@ -829,6 +953,160 @@ def stock_us_hist_universal(
     return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
 
 
+# ── 板块 V1 端点 ──────────────────────────────────────────────
+
+@app_core.get(
+    path="/public/v1/board_industry_list",
+    description="行业板块列表 (v1, 缓存)",
+    summary="返回 A 股行业板块名称，数据来自后台缓存",
+)
+def board_industry_list_cached(
+    request: Request,
+    page: int = Query(0, ge=0, description="页码，0=不分页"),
+    page_size: int = Query(100, ge=1, le=1000, description="每页条数（最大 1000）"),
+):
+    with _spot_cache_lock:
+        entry = _spot_cache.get("board_industry_list")
+    if entry is not None:
+        data = entry["data"]
+        total = len(data)
+        if page > 0:
+            data = data[(page - 1) * page_size : page * page_size]
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=data,
+            headers={"X-Total-Count": str(total)},
+        )
+    if not _spot_cache_warm.is_set():
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "缓存预热中，请稍后重试"},
+        )
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={"error": "行业板块数据源不可用"},
+    )
+
+
+@app_core.get(
+    path="/public/v1/board_concept_list",
+    description="概念板块列表 (v1, 缓存)",
+    summary="返回 A 股概念板块名称，数据来自后台缓存",
+)
+def board_concept_list_cached(
+    request: Request,
+    page: int = Query(0, ge=0, description="页码，0=不分页"),
+    page_size: int = Query(100, ge=1, le=1000, description="每页条数（最大 1000）"),
+):
+    with _spot_cache_lock:
+        entry = _spot_cache.get("board_concept_list")
+    if entry is not None:
+        data = entry["data"]
+        total = len(data)
+        if page > 0:
+            data = data[(page - 1) * page_size : page * page_size]
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=data,
+            headers={"X-Total-Count": str(total)},
+        )
+    if not _spot_cache_warm.is_set():
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "缓存预热中，请稍后重试"},
+        )
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={"error": "概念板块数据源不可用"},
+    )
+
+
+@app_core.get(
+    path="/public/v1/board_industry_spot",
+    description="行业板块实时行情 (v1)",
+    summary="返回指定行业板块的实时行情",
+)
+def board_industry_spot(
+    symbol: str = Query(..., description="行业名称，如 小金属、半导体"),
+):
+    data, err = _cached_on_demand(
+        "board_industry_spot:" + symbol,
+        ak.stock_board_industry_spot_em, symbol=symbol,
+    )
+    if err:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND if err == 404 else status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"未找到行业板块: {symbol}" if err == 404 else "数据源连接失败，请稍后重试"},
+        )
+    return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+
+
+@app_core.get(
+    path="/public/v1/board_concept_spot",
+    description="概念板块实时行情 (v1)",
+    summary="返回指定概念板块的实时行情",
+)
+def board_concept_spot(
+    symbol: str = Query(..., description="概念名称，如 可燃冰、元宇宙"),
+):
+    data, err = _cached_on_demand(
+        "board_concept_spot:" + symbol,
+        ak.stock_board_concept_spot_em, symbol=symbol,
+    )
+    if err:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND if err == 404 else status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"未找到概念板块: {symbol}" if err == 404 else "数据源连接失败，请稍后重试"},
+        )
+    return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+
+
+@app_core.get(
+    path="/public/v1/board_industry_hist",
+    description="行业板块历史指数 (v1)",
+    summary="返回行业板块历史指数数据（同花顺源）",
+)
+def board_industry_hist(
+    symbol: str = Query(..., description="行业名称，如 元件"),
+    start_date: str = Query("20200101", description="开始日期"),
+    end_date: str = Query("20250101", description="结束日期"),
+):
+    data, err = _cached_on_demand(
+        f"board_industry_hist:{symbol}:{start_date}:{end_date}",
+        ak.stock_board_industry_index_ths,
+        symbol=symbol, start_date=start_date, end_date=end_date,
+    )
+    if err:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND if err == 404 else status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"未找到行业板块: {symbol}" if err == 404 else "数据源连接失败，请稍后重试"},
+        )
+    return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+
+
+@app_core.get(
+    path="/public/v1/board_concept_hist",
+    description="概念板块历史指数 (v1)",
+    summary="返回概念板块历史指数数据（同花顺源）",
+)
+def board_concept_hist(
+    symbol: str = Query(..., description="概念名称，如 阿里巴巴概念"),
+    start_date: str = Query("20200101", description="开始日期"),
+    end_date: str = Query("20250228", description="结束日期"),
+):
+    data, err = _cached_on_demand(
+        f"board_concept_hist:{symbol}:{start_date}:{end_date}",
+        ak.stock_board_concept_index_ths,
+        symbol=symbol, start_date=start_date, end_date=end_date,
+    )
+    if err:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND if err == 404 else status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"未找到概念板块: {symbol}" if err == 404 else "数据源连接失败，请稍后重试"},
+        )
+    return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+
+
 @app_core.get(
     path="/public/v1/default_source",
     description="查看默认数据源",
@@ -957,6 +1235,33 @@ def cache_status(request: Request):
 
 
 _SPOT_STALE_THRESHOLD = 120  # 交易时段超过此秒数视为过期
+
+
+def _cached_on_demand(cache_key: str, func, **kwargs) -> tuple[list | None, int | None]:
+    """Serve from cache if available, otherwise call func and cache result.
+    Returns (data, status_code_or_None). None status = 200 with data.
+    """
+    with _spot_cache_lock:
+        entry = _spot_cache.get(cache_key)
+    if entry is not None:
+        age = int(time.time() - entry["ts"])
+        if age < _CACHE_TTL:
+            return entry["data"], None
+    try:
+        df = _call_akshare_direct(func, **kwargs)
+        if df is None:
+            return None, 404
+        data = json.loads(df.to_json(orient="records", date_format="iso"))
+        with _spot_cache_lock:
+            _spot_cache[cache_key] = {"data": data, "ts": time.time()}
+        return data, None
+    except (RequestsConnectionError, RequestsTimeout):
+        # If we have stale cache, serve it anyway
+        if entry is not None:
+            return entry["data"], None
+        return None, 502
+    except Exception:
+        return None, 502
 
 
 def _stale_headers(cache_ts: float) -> dict:
