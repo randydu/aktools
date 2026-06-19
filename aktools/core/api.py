@@ -76,7 +76,7 @@ _US_HIST_SOURCE_MAP = {
 }
 
 _STATIC_CACHE_MAP = {
-    "stock_list": ak.stock_info_a_code_name,
+    "stock_cn_list": ak.stock_info_a_code_name,
     "fund_list": ak.fund_name_em,
     "stock_us_list": ak.get_us_stock_name,
     "board_industry_list": ak.stock_board_industry_name_em,
@@ -222,7 +222,7 @@ def _refresh_cache():
                 if df is not None:
                     data = json.loads(df.to_json(orient="records", date_format="iso"))
                     with _spot_cache_lock:
-                        _spot_cache["stock_spot_" + source] = {"data": data, "ts": time.time()}
+                        _spot_cache["stock_cn_spot_" + source] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: stock_spot_{source} ({len(data)} 条)")
                     succeeded += 1
             except Exception as e:
@@ -467,11 +467,11 @@ def root(
 
 
 @app_core.get(
-    path="/public/v1/stock_zh_a_hist",
-    description="统一 A 股历史行情接口 (v1)",
+    path="/public/v1/stock_cn_hist",
+    description="A 股历史行情接口 (v1)",
     summary="支持切换数据源（eastmoney/sina/tencent），方便海外用户访问",
 )
-def stock_zh_a_hist_universal(
+def stock_cn_hist(
     request: Request,
     symbol: str = Query(..., description="股票代码，如 600000 或 sh600000"),
     source: str = Query(
@@ -527,11 +527,11 @@ def stock_zh_a_hist_universal(
 
 
 @app_core.get(
-    path="/public/v1/stock_zh_a_spot",
-    description="统一 A 股实时行情接口 (v1)",
+    path="/public/v1/stock_cn_spot",
+    description="A 股实时行情接口 (v1)",
     summary="支持切换数据源（eastmoney/sina），可筛选个股",
 )
-def stock_zh_a_spot_universal(
+def stock_cn_spot(
     request: Request,
     source: str = Query(
         "", description=f"数据源，可选 eastmoney/sina，默认 {DEFAULT_SOURCE}"
@@ -548,12 +548,12 @@ def stock_zh_a_spot_universal(
 
     # 缓存优先：先查请求源 → 再查其他源 → 最后才发起网络调用
     with _spot_cache_lock:
-        cache_key = "stock_spot_" + source
+        cache_key = "stock_cn_spot_" + source
         entry = _spot_cache.get(cache_key)
         fallback_entry = None
         if entry is None:
             for s in _SPOT_SOURCE_MAP:
-                alt_key = "stock_spot_" + s
+                alt_key = "stock_cn_spot_" + s
                 if s != source and alt_key in _spot_cache:
                     fallback_entry = _spot_cache[alt_key]
                     break
@@ -626,17 +626,17 @@ def stock_zh_a_spot_universal(
 
 
 @app_core.get(
-    path="/public/v1/stock_list",
+    path="/public/v1/stock_cn_list",
     description="A 股股票代码列表 (v1, 缓存)",
     summary="返回沪深京 A 股代码与名称，数据来自后台缓存，响应 <10ms",
 )
-def stock_list_cached(
+def stock_cn_list(
     request: Request,
     page: int = Query(0, ge=0, description="页码，0=不分页"),
     page_size: int = Query(100, ge=1, le=1000, description="每页条数（最大 1000）"),
 ):
     with _spot_cache_lock:
-        entry = _spot_cache.get("stock_list")
+        entry = _spot_cache.get("stock_cn_list")
 
     if entry is not None:
         data = entry["data"]
@@ -1203,7 +1203,7 @@ def cache_status(request: Request):
     # Map cache keys to their refresh intervals
     _intervals = {}
     for s in _SPOT_SOURCE_MAP:
-        _intervals["stock_spot_" + s] = _CACHE_TTL
+        _intervals["stock_cn_spot_" + s] = _CACHE_TTL
     for s in _FUND_SPOT_SOURCE_MAP:
         _intervals["fund_etf_spot"] = _CACHE_TTL
     for s in _US_SPOT_SOURCE_MAP:
@@ -1296,15 +1296,15 @@ def _search_cache(
 
 
 @app_core.get(
-    path="/public/v1/stock_search",
+    path="/public/v1/stock_cn_search",
     description="股票代码/名称搜索 (v1)",
     summary="基于缓存列表搜索股票代码或名称，支持模糊匹配",
 )
-def stock_search(
+def stock_cn_search(
     q: str = Query(..., min_length=1, description="搜索关键词（子串匹配，非前缀匹配）"),
     limit: int = Query(20, ge=0, le=1000, description="最大返回条数，0=不限制"),
 ):
-    matches, total = _search_cache("stock_list", q, limit, "code", "name")
+    matches, total = _search_cache("stock_cn_list", q, limit, "code", "name")
     if matches is None:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
