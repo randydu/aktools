@@ -1,20 +1,23 @@
 # ChangeLog
 
-## Unreleased
+## 0.0.95
 
 ### Added
 
-- Fund/ETF universal APIs — `fund_list` (daily cache), `fund_etf_spot` (60s cache), `fund_etf_hist` (on-demand, multi-source)
-- Descriptive cache key naming (`stock_spot_sina`, `fund_etf_spot`, etc.)
-- `GET /api/v1/cache_status` — cache metadata: item count, last-updated timestamp, refresh interval per cache
-- List endpoints now accept `page` and `page_size` query params with `X-Total-Count` response header
-- Renamed `stock_info_a_code_name` → `stock_list` for cleaner naming convention
+- Fund/ETF universal APIs — `fund_list`, `fund_etf_spot`, `fund_etf_hist`
+- `GET /api/public/v1/stock_search` & `fund_search` — fuzzy search on cached lists, <10ms
+- `GET /api/public/v1/cache_status` — per-cache metadata with refresh intervals
+- `POST /api/public/v1/cache/pause` & `resume` — runtime cache control
+- Smart caching: market-hours aware (60s trading / 300s off-hours), weekend detection
+- Stale-data headers (`X-Cache-Stale`, `X-Cache-Age`) on spot endpoints during market hours
+- List pagination (`page`/`page_size`) with `X-Total-Count` header
+- Descriptive cache keys (`stock_spot_sina`, `fund_etf_spot`, etc.)
+- `stock_info_a_code_name` → `stock_list`, all v1 paths consolidated under `/api/public/v1/`
 
 ### Fixed
 
-- Cached list endpoints no longer fall back to slow direct calls when background refresh already failed
+- Cached list endpoints fast-fail instead of falling back to slow direct calls
 - Duplicate stock spot refresh loop removed from cache thread
-- `fund_list` endpoint correctly reads from `fund_list` cache key
 
 ## 0.0.94
 

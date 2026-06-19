@@ -226,19 +226,89 @@ curl "http://127.0.0.1:8080/api/public/v1/fund_etf_spot?symbol=159915"
 curl "http://127.0.0.1:8080/api/public/v1/fund_etf_hist?symbol=sh510050&source=sina"
 ```
 
+### 搜索接口
+
+`GET /api/public/v1/stock_search` — 股票代码/名称模糊搜索
+
+`GET /api/public/v1/fund_search` — 基金代码/名称模糊搜索
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `q` | 是 | — | 搜索关键词，子串匹配代码或名称 |
+| `limit` | 否 | `20` | 最大返回条数，`0`=不限制 |
+
+```sh
+# 搜索股票
+curl "http://127.0.0.1:8080/api/public/v1/stock_search?q=浦发&limit=5"
+
+# 搜索基金
+curl "http://127.0.0.1:8080/api/public/v1/fund_search?q=华夏&limit=0"
+```
+
+响应包含 `X-Total-Count` 头部，数据来自缓存，<10ms。
+
+### 缓存控制
+
+`POST /api/public/v1/cache/pause` — 暂停后台自动刷新
+
+`POST /api/public/v1/cache/resume` — 恢复后台自动刷新
+
+`GET /api/public/v1/cache_status` — 查看缓存状态
+
+```sh
+# 暂停
+curl -X POST "http://127.0.0.1:8080/api/public/v1/cache/pause"
+
+# 恢复
+curl -X POST "http://127.0.0.1:8080/api/public/v1/cache/resume"
+
+# 查看状态
+curl "http://127.0.0.1:8080/api/public/v1/cache_status"
+```
+
+缓存状态响应：
+
+```json
+{
+  "warm": true,
+  "paused": false,
+  "market_open": true,
+  "caches": { ... }
+}
+```
+
+#### 智能刷新策略
+
+| 时段 | 刷新间隔 | 说明 |
+| ----- | :---: | ----- |
+| A 股交易时段 (Mon-Fri 9:30-11:30, 13:00-15:00 CST) | 60s | 活跃刷新 |
+| 非交易时段 / 周末 | 300s | 低频刷新 |
+
+#### 数据新鲜度
+
+实时行情接口在响应头中返回新鲜度信息：
+
+```
+X-Cache-Age: 85
+X-Cache-Stale: true              # 仅交易时段 age > 120s 时出现
+Warning: 110 - "Response is Stale (age=85s)"
+```
+
+客户端可检查 `X-Cache-Stale` 头决定是否重试或显示时效提示。过期数据仍然返回，不会阻塞请求。
+
 ### 默认数据源管理
 
-`GET /api/v1/default_source` — 查看当前默认源
+`GET /api/public/v1/default_source` — 查看当前默认源
 
-`POST /api/v1/default_source?source=<name>` — 运行时切换
+`POST /api/public/v1/default_source?source=<name>` — 运行时切换
 
 ```sh
 # 查看
-curl http://127.0.0.1:8080/api/v1/default_source
+curl http://127.0.0.1:8080/api/public/v1/default_source
 # → {"default_source":"eastmoney","available":["eastmoney","sina","tencent"]}
 
 # 切换为 Sina（即时生效，无需重启）
-curl -X POST "http://127.0.0.1:8080/api/v1/default_source?source=sina"
+curl -X POST "http://127.0.0.1:8080/api/public/v1/default_source?source=sina"
 # → {"default_source":"sina","previous":"eastmoney"}
 ```
 

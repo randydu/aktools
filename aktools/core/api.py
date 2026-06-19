@@ -11,6 +11,7 @@ import re
 import threading
 import time
 import urllib.parse
+from datetime import datetime, timezone, timedelta
 from logging.handlers import TimedRotatingFileHandler
 from typing import Optional
 
@@ -71,14 +72,39 @@ _STATIC_CACHE_TTL = 86400  # 静态数据刷新间隔（秒，默认 1 天）
 _spot_cache = {}  # {key: {"data": [...], "ts": float}}
 _spot_cache_lock = threading.Lock()
 _spot_cache_warm = threading.Event()  # 首次刷新完成后置位
+_cache_paused = threading.Event()     # 暂停标志，set=已暂停
+_CACHE_TTL_OFF = 300                  # 非交易时段刷新间隔（秒）
+
+# A 股交易时段 (北京时间)
+_MARKET_SESSIONS = [
+    ((9, 30), (11, 30)),
+    ((13, 0), (15, 0)),
+]
+
+
+def _is_market_open() -> bool:
+    """Check if A-share market is currently open (Beijing time, Mon-Fri)."""
+    now = datetime.now(timezone(timedelta(hours=8)))  # UTC+8
+    if now.weekday() >= 5:  # Saturday/Sunday
+        return False
+    t = (now.hour, now.minute)
+    for (h1, m1), (h2, m2) in _MARKET_SESSIONS:
+        if (h1, m1) <= t < (h2, m2):
+            return True
+    return False
 
 
 def _refresh_cache():
-    """Daemon thread: periodically refresh cached data."""
+    """Daemon thread: periodically refresh cached data (market-aware, pausable)."""
     cycle = 0
-    _static_interval = max(1, _STATIC_CACHE_TTL // _CACHE_TTL)  # 每 N 个周期刷新一次静态数据
+    _static_interval = max(1, _STATIC_CACHE_TTL // _CACHE_TTL)
     while True:
+        # 等待暂停解除
+        while _cache_paused.is_set():
+            time.sleep(1)
         cycle += 1
+        market_open = _is_market_open()
+        ttl = _CACHE_TTL if market_open else _CACHE_TTL_OFF
         # 刷新实时行情（每周期）— A 股
         for source, func in _SPOT_SOURCE_MAP.items():
             try:
@@ -120,7 +146,7 @@ def _refresh_cache():
                     logger.warning(f"刷新缓存失败 [{key}]: {e}")
         if cycle == 1:
             _spot_cache_warm.set()
-        time.sleep(_CACHE_TTL)
+        time.sleep(ttl)
 
 
 _refresh_thread = threading.Thread(target=_refresh_cache, daemon=True)
@@ -383,14 +409,17 @@ def stock_zh_a_spot_universal(
                     fallback_entry = _spot_cache[alt_key]
                     break
 
+    stale_headers = {}
     if entry is not None:
         data = entry["data"]
+        stale_headers = _stale_headers(entry["ts"])
         logger.info(
             f"实时行情缓存命中: source={source}, "
             f"age={int(time.time() - entry['ts'])}s"
         )
     elif fallback_entry is not None:
         data = fallback_entry["data"]
+        stale_headers = _stale_headers(fallback_entry["ts"])
         source = next(s for s, e in _spot_cache.items() if e is fallback_entry)
         logger.info(
             f"实时行情回退到备用缓存: {source}, "
@@ -442,7 +471,9 @@ def stock_zh_a_spot_universal(
                 content={"error": f"未找到股票代码: {symbol}"},
             )
 
-    return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+    return JSONResponse(
+        status_code=status.HTTP_200_OK, content=data, headers=stale_headers
+    )
 
 
 @app_core.get(
@@ -542,6 +573,7 @@ def fund_etf_spot_cached(
     if entry is not None:
         data = entry["data"]
         age = int(time.time() - entry["ts"])
+        stale_headers = _stale_headers(entry["ts"])
         logger.info(f"ETF 行情缓存命中: age={age}s, count={len(data)}")
     elif not _spot_cache_warm.is_set():
         return JSONResponse(
@@ -565,7 +597,9 @@ def fund_etf_spot_cached(
                 content={"error": f"未找到 ETF 代码: {symbol}"},
             )
 
-    return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+    return JSONResponse(
+        status_code=status.HTTP_200_OK, content=data, headers=stale_headers
+    )
 
 
 @app_core.get(
@@ -629,12 +663,12 @@ def fund_etf_hist_universal(
 
 
 @app_core.get(
-    path="/v1/default_source",
+    path="/public/v1/default_source",
     description="查看 / 切换默认数据源",
     summary="GET 返回当前默认源，POST 切换默认源",
 )
 @app_core.post(
-    path="/v1/default_source",
+    path="/public/v1/default_source",
     description="查看 / 切换默认数据源",
     summary="GET 返回当前默认源，POST 切换默认源",
 )
@@ -663,8 +697,36 @@ def default_source(
     )
 
 
+@app_core.post(
+    path="/public/v1/cache/pause",
+    description="暂停缓存后台刷新",
+    summary="暂停自动刷新，已在进行的刷新不受影响",
+)
+def cache_pause():
+    _cache_paused.set()
+    logger.info("缓存刷新已暂停")
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"paused": True},
+    )
+
+
+@app_core.post(
+    path="/public/v1/cache/resume",
+    description="恢复缓存后台刷新",
+    summary="恢复自动刷新",
+)
+def cache_resume():
+    _cache_paused.clear()
+    logger.info("缓存刷新已恢复")
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"paused": False},
+    )
+
+
 @app_core.get(
-    path="/v1/cache_status",
+    path="/public/v1/cache_status",
     description="缓存状态",
     summary="返回所有缓存项的元信息（条数、最后更新时间）",
 )
@@ -694,8 +756,88 @@ def cache_status(request: Request):
         status_code=status.HTTP_200_OK,
         content={
             "warm": _spot_cache_warm.is_set(),
+            "paused": _cache_paused.is_set(),
+            "market_open": _is_market_open(),
             "caches": result,
         },
+    )
+
+
+_SPOT_STALE_THRESHOLD = 120  # 交易时段超过此秒数视为过期
+
+
+def _stale_headers(cache_ts: float) -> dict:
+    """Return headers indicating whether cached data is stale."""
+    age = int(time.time() - cache_ts)
+    market_open = _is_market_open()
+    stale = market_open and age > _SPOT_STALE_THRESHOLD
+    headers = {"X-Cache-Age": str(age)}
+    if stale:
+        headers["X-Cache-Stale"] = "true"
+        headers["Warning"] = f'110 - "Response is Stale (age={age}s)"'
+    return headers
+
+
+def _search_cache(
+    cache_key: str, q: str, limit: int, code_col: str, name_col: str
+):
+    """Search a cached list by code or name (case-insensitive substring)."""
+    with _spot_cache_lock:
+        entry = _spot_cache.get(cache_key)
+    if entry is None:
+        return None, 0
+    q_lower = q.strip().lower()
+    matches = [
+        {"code": str(row.get(code_col, "")), "name": str(row.get(name_col, ""))}
+        for row in entry["data"]
+        if q_lower in str(row.get(code_col, "")).lower()
+        or q_lower in str(row.get(name_col, "")).lower()
+    ]
+    total = len(matches)
+    return (matches if limit == 0 else matches[:limit]), total
+
+
+@app_core.get(
+    path="/public/v1/stock_search",
+    description="股票代码/名称搜索 (v1)",
+    summary="基于缓存列表搜索股票代码或名称，支持模糊匹配",
+)
+def stock_search(
+    q: str = Query(..., min_length=1, description="搜索关键词（子串匹配，非前缀匹配）"),
+    limit: int = Query(20, ge=0, le=1000, description="最大返回条数，0=不限制"),
+):
+    matches, total = _search_cache("stock_list", q, limit, "code", "name")
+    if matches is None:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "股票列表缓存未就绪，请稍后重试"},
+        )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content=matches,
+        headers={"X-Total-Count": str(total)},
+    )
+
+
+@app_core.get(
+    path="/public/v1/fund_search",
+    description="基金代码/名称搜索 (v1)",
+    summary="基于缓存列表搜索基金代码或名称，支持模糊匹配",
+)
+def fund_search(
+    q: str = Query(..., min_length=1, description="搜索关键词（子串匹配，非前缀匹配）"),
+    limit: int = Query(20, ge=0, le=1000, description="最大返回条数，0=不限制"),
+):
+    matches, total = _search_cache("fund_list", q, limit, "基金代码", "基金简称")
+    if matches is None:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "基金列表缓存未就绪，请稍后重试"},
+        )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content=matches,
+        headers={"X-Total-Count": str(total)},
     )
 
 

@@ -96,29 +96,29 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000&source=e
 
 ## A 股股票列表接口
 
-`GET /api/public/v1/stock_info_a_code_name`
+`GET /api/public/v1/stock_list`
 
 返回沪深京全部 A 股代码与名称列表，数据由后台缓存（每 60 秒刷新），响应 <10ms。
 
 ```sh
-curl "http://127.0.0.1:8080/api/public/v1/stock_info_a_code_name"
+curl "http://127.0.0.1:8080/api/public/v1/stock_list"
 ```
 
 ---
 
 ## 默认数据源管理
 
-`GET /api/v1/default_source` — 查看当前默认数据源
+`GET /api/public/v1/default_source` — 查看当前默认数据源
 
-`POST /api/v1/default_source?source=<name>` — 运行时切换默认数据源
+`POST /api/public/v1/default_source?source=<name>` — 运行时切换默认数据源
 
 ```sh
 # 查看当前设置
-curl http://127.0.0.1:8080/api/v1/default_source
+curl http://127.0.0.1:8080/api/public/v1/default_source
 # → {"default_source":"eastmoney","available":["eastmoney","sina","tencent"]}
 
 # 切换到 Sina（即时生效，无需重启）
-curl -X POST "http://127.0.0.1:8080/api/v1/default_source?source=sina"
+curl -X POST "http://127.0.0.1:8080/api/public/v1/default_source?source=sina"
 # → {"default_source":"sina","previous":"eastmoney"}
 
 # 此后所有不传 ?source= 的请求默认使用 Sina
@@ -142,6 +142,40 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=600000"
   "error": "sina 数据源连接失败，已重试 3 次，请稍后重试或切换数据源"
 }
 ```
+
+---
+
+## 智能缓存引擎
+
+后台缓存线程感知 A 股交易时段（北京时间 Mon-Fri 9:30-11:30, 13:00-15:00）。
+
+| 时段 | 刷新间隔 |
+| ----- | :---: |
+| 交易时段 | 60s |
+| 非交易时段 / 周末 | 300s |
+
+### 暂停/恢复
+
+```sh
+curl -X POST "http://127.0.0.1:8080/api/public/v1/cache/pause"
+curl -X POST "http://127.0.0.1:8080/api/public/v1/cache/resume"
+```
+
+### 数据新鲜度
+
+实时行情响应头携带新鲜度信息：
+
+```
+X-Cache-Age: 85
+X-Cache-Stale: true
+Warning: 110 - "Response is Stale"
+```
+
+`X-Cache-Stale` 仅在交易时段且缓存年龄 > 120s 时出现。数据仍然返回，不会阻塞。
+
+### 缓存状态
+
+`GET /api/public/v1/cache_status` 返回 `warm`、`paused`、`market_open` 及各缓存项的条数与时间。
 
 ---
 
