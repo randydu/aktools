@@ -40,18 +40,18 @@
 
 | 请求 | AKShare 调用 |
 | ----- | ----- |
-| `/api/public/stock_zh_a_hist?symbol=600000` | `ak.stock_zh_a_hist(symbol="600000")` |
+| `/api/public/stock_cn_hist?symbol=600000` | `ak.stock_cn_hist(symbol="600000")` |
 | `/api/public/stock_zh_ah_daily?symbol=600000&start_date=20240101&end_date=20241231` | `ak.stock_zh_ah_daily(symbol="600000", start_date="20240101", end_date="20241231")` |
-| `/api/public/stock_zh_a_spot_em` | `ak.stock_zh_a_spot_em()` |
+| `/api/public/stock_cn_spot_em` | `ak.stock_cn_spot_em()` |
 
 **示例**
 
 ```sh
 # A 股历史行情（东方财富）
-curl "http://127.0.0.1:8080/api/public/stock_zh_a_hist?symbol=600000&period=daily&start_date=20240101&end_date=20241231&adjust=qfq"
+curl "http://127.0.0.1:8080/api/public/stock_cn_hist?symbol=600000&period=daily&start_date=20240101&end_date=20241231&adjust=qfq"
 
 # A 股实时行情
-curl "http://127.0.0.1:8080/api/public/stock_zh_a_spot_em"
+curl "http://127.0.0.1:8080/api/public/stock_cn_spot_em"
 
 # 期货历史数据
 curl "http://127.0.0.1:8080/api/public/futures_main_sina?symbol=V0&start_date=20240101&end_date=20241231"
@@ -96,6 +96,117 @@ curl "http://127.0.0.1:8080/api/public/stock_hk_daily?symbol=00700&start_date=20
 `GET /api/private/{item_id}`（需要认证）
 
 行为与公开接口一致，但需要 Bearer Token 认证（见下方[认证](#认证)章节）。
+
+---
+
+## 数据接口 — V1 可转债
+
+### 可转债列表
+
+`GET /api/public/v1/bond_cov_list`
+
+返回可转债代码、名称与核心指标（转股价、溢价率等），数据由后台缓存（每日刷新），支持分页。
+
+### 可转债实时行情
+
+`GET /api/public/v1/bond_cov_spot`
+
+返回可转债实时行情，数据由后台缓存（60s 刷新），支持 `?symbol=sh123121` 筛选。
+
+### 可转债历史行情
+
+`GET /api/public/v1/bond_cov_hist?symbol=sh010107`
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | 可转债代码（新浪格式），如 `sh010107` |
+
+---
+
+## 数据接口 — V1 期货
+
+### 期货实时行情
+
+`GET /api/public/v1/futures_spot`
+
+返回国际期货实时行情，数据由后台缓存（60s 刷新），支持 `?symbol=HG00Y` 筛选。
+
+### 期货历史行情
+
+`GET /api/public/v1/futures_hist?symbol=HG00Y`
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | 期货代码，如 `HG00Y` |
+| `start_date` | 否 | `19700101` | 开始日期 |
+| `end_date` | 否 | `22220101` | 结束日期 |
+
+---
+
+## 数据接口 — V1 指数
+
+### 指数列表
+
+`GET /api/public/v1/index_list`
+
+返回全球指数代码与名称，数据由后台缓存（每日刷新），支持分页。
+
+### 指数实时行情
+
+`GET /api/public/v1/index_spot`
+
+返回全球指数实时行情，缓存 <10ms，支持 `?symbol=OMX` 筛选。
+
+### 指数历史行情
+
+`GET /api/public/v1/index_hist?symbol=OMX&source=sina`
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | 指数代码，如 `OMX` 或 `美元指数` |
+| `source` | 否 | `eastmoney` | `eastmoney` / `sina` |
+
+---
+
+## 数据接口 — V1 港股
+
+### 港股列表
+
+`GET /api/public/v1/stock_hk_list`
+
+返回港股通成份股，数据由后台缓存（每日刷新），支持分页。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `page` | 否 | `0`（不分页） | 页码，1-based |
+| `page_size` | 否 | `100` | 每页条数，最大 1000 |
+
+### 港股搜索
+
+`GET /api/public/v1/stock_hk_search?q=00700`
+
+### 港股实时行情
+
+`GET /api/public/v1/stock_hk_spot`
+
+支持切换数据源（eastmoney / sina），可筛选个股，缓存 + 回退。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `source` | 否 | `eastmoney` | `eastmoney` / `sina` |
+| `symbol` | 否 | 空（全市场） | 港股代码筛选，如 `00700` |
+
+### 港股历史行情
+
+`GET /api/public/v1/stock_hk_hist?symbol=00700&source=sina`
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | 港股代码，如 `00700` |
+| `source` | 否 | `eastmoney` | `eastmoney` / `sina` |
+| `start_date` | 否 | `19700101` | 开始日期 YYYYMMDD |
+| `end_date` | 否 | `22220101` | 结束日期 YYYYMMDD |
+| `adjust` | 否 | `""` | 复权类型 |
 
 ---
 
@@ -164,7 +275,7 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_us_hist?symbol=105.MSFT&source=e
 
 ### 统一 A 股历史行情
 
-`GET /api/public/v1/stock_zh_a_hist`
+`GET /api/public/v1/stock_cn_hist`
 
 单个接口覆盖三个数据源，自动转换符号格式。
 
@@ -186,15 +297,15 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_us_hist?symbol=105.MSFT&source=e
 
 ```sh
 # Sina 源（推荐海外用户）
-curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=600000&source=sina"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist?symbol=600000&source=sina"
 
 # 指定日期 + 前复权
-curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=000001&source=tencent&start_date=20240101&end_date=20241231&adjust=qfq"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist?symbol=000001&source=tencent&start_date=20240101&end_date=20241231&adjust=qfq"
 ```
 
 ### 统一 A 股实时行情
 
-`GET /api/public/v1/stock_zh_a_spot`
+`GET /api/public/v1/stock_cn_spot`
 
 返回全市场实时行情，支持按个股代码筛选。
 
@@ -205,10 +316,10 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=000001&source=t
 
 ```sh
 # 全市场实时行情（Sina 源）
-curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?source=sina"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_spot?source=sina"
 
 # 筛选单只股票
-curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_spot?symbol=600000"
 ```
 
 !!! note
@@ -218,7 +329,7 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000"
 
 ### A 股股票列表
 
-`GET /api/public/v1/stock_list`
+`GET /api/public/v1/stock_cn_list`
 
 返回沪深京全部 A 股代码与名称，数据由后台缓存，响应 <10ms。
 
@@ -229,10 +340,10 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000"
 
 ```sh
 # 第一页，每页 50 条
-curl "http://127.0.0.1:8080/api/public/v1/stock_list?page=1&page_size=50"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_list?page=1&page_size=50"
 
 # 不分页（返回全部）
-curl "http://127.0.0.1:8080/api/public/v1/stock_list"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_list"
 ```
 
 响应包含 `X-Total-Count` 头部，示例：
@@ -285,6 +396,40 @@ curl "http://127.0.0.1:8080/api/public/v1/fund_etf_spot"
 curl "http://127.0.0.1:8080/api/public/v1/fund_etf_spot?symbol=159915"
 ```
 
+### LOF 实时行情
+
+`GET /api/public/v1/fund_lof_spot`
+
+返回 LOF 实时行情，数据由后台缓存（60s 刷新），支持 `?symbol=166009` 筛选。
+
+### LOF 历史行情
+
+`GET /api/public/v1/fund_lof_hist?symbol=166009`
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | LOF 代码，如 `166009` |
+| `period` | 否 | `daily` | daily / weekly / monthly |
+| `start_date` | 否 | `19700101` | 开始日期 |
+| `end_date` | 否 | `20500101` | 结束日期 |
+| `adjust` | 否 | `""` | 复权类型 |
+
+### 场外基金列表
+
+`GET /api/public/v1/fund_open_list`
+
+返回全部开放式基金及最新净值，数据由后台缓存（每日刷新），支持分页。
+
+### 场外基金历史净值
+
+`GET /api/public/v1/fund_open_hist?symbol=710001`
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | 基金代码，如 `710001` |
+| `indicator` | 否 | `单位净值走势` | 单位净值走势 / 累计净值走势 |
+| `period` | 否 | `成立来` | 成立来 / 近1年 / 近6月 / 近3月 / 近1月 |
+
 ### ETF 历史行情
 
 `GET /api/public/v1/fund_etf_hist`
@@ -306,7 +451,7 @@ curl "http://127.0.0.1:8080/api/public/v1/fund_etf_hist?symbol=sh510050&source=s
 
 ### 搜索接口
 
-`GET /api/public/v1/stock_search` — 股票代码/名称模糊搜索
+`GET /api/public/v1/stock_cn_search` — 股票代码/名称模糊搜索
 
 `GET /api/public/v1/fund_search` — 基金代码/名称模糊搜索
 
@@ -317,7 +462,7 @@ curl "http://127.0.0.1:8080/api/public/v1/fund_etf_hist?symbol=sh510050&source=s
 
 ```sh
 # 搜索股票
-curl "http://127.0.0.1:8080/api/public/v1/stock_search?q=浦发&limit=5"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_search?q=浦发&limit=5"
 
 # 搜索基金
 curl "http://127.0.0.1:8080/api/public/v1/fund_search?q=华夏&limit=0"
@@ -460,7 +605,7 @@ curl -X DELETE "http://127.0.0.1:8080/api/private/v1/tokens?token=akt_a1b2c3d4..
 
 ```sh
 curl -H "Authorization: Bearer akt_a1b2c3d4..." \
-  "http://127.0.0.1:8080/api/private/stock_zh_a_hist?symbol=600000"
+  "http://127.0.0.1:8080/api/private/stock_cn_hist?symbol=600000"
 ```
 
 Token 存储在 `aktools/tokens.db`（SQLite），服务器重启后依然有效。
@@ -469,7 +614,7 @@ Token 存储在 `aktools/tokens.db`（SQLite），服务器重启后依然有效
 
 ```sh
 curl -H "Authorization: Bearer akt_..." \
-  "http://127.0.0.1:8080/api/private/stock_zh_a_hist?symbol=600000"
+  "http://127.0.0.1:8080/api/private/stock_cn_hist?symbol=600000"
 ```
 
 !!! note "旧凭据已废弃"

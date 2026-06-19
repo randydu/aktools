@@ -21,7 +21,7 @@ docker run -e AKSHARE_PROXY=http://your-proxy:port ...
 
 ## 统一 A 股历史行情接口
 
-`GET /api/public/v1/stock_zh_a_hist`
+`GET /api/public/v1/stock_cn_hist`
 
 单个接口覆盖三个数据源，`symbol` 格式统一（有无交易所前缀均可自动转换）。
 
@@ -45,13 +45,13 @@ docker run -e AKSHARE_PROXY=http://your-proxy:port ...
 
 ```sh
 # 使用 Sina 数据源（推荐海外用户）
-curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=600000&source=sina"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist?symbol=600000&source=sina"
 
 # 不指定 source，使用默认源
-curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=000001"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist?symbol=000001"
 
 # 指定日期范围和前复权
-curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=600000&source=tencent&start_date=20240101&end_date=20241231&adjust=qfq"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist?symbol=600000&source=tencent&start_date=20240101&end_date=20241231&adjust=qfq"
 ```
 
 ### 符号自动转换
@@ -69,7 +69,7 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=600000&source=t
 
 ## 统一 A 股实时行情接口
 
-`GET /api/public/v1/stock_zh_a_spot`
+`GET /api/public/v1/stock_cn_spot`
 
 单个接口覆盖两个数据源，返回全市场实时行情，可按个股代码筛选。
 
@@ -82,10 +82,10 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=600000&source=t
 
 ```sh
 # 全市场实时行情（从内存缓存返回，毫秒级响应）
-curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?source=sina"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_spot?source=sina"
 
 # 筛选单只股票
-curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000&source=eastmoney"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_spot?symbol=600000&source=eastmoney"
 ```
 
 !!! tip "缓存"
@@ -96,7 +96,7 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000&source=e
 
 ## A 股股票列表接口
 
-`GET /api/public/v1/stock_list`
+`GET /api/public/v1/stock_cn_list`
 
 返回沪深京全部 A 股代码与名称列表，数据由后台缓存（每日刷新），响应 <10ms。
 支持分页，响应包含 `X-Total-Count` 头部。
@@ -108,10 +108,42 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000&source=e
 
 ```sh
 # 分页获取
-curl "http://127.0.0.1:8080/api/public/v1/stock_list?page=1&page_size=50"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_list?page=1&page_size=50"
 
 # 不分页（返回全部）
-curl "http://127.0.0.1:8080/api/public/v1/stock_list"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_list"
+```
+
+---
+
+## LOF 接口
+
+### LOF 实时行情
+
+`GET /api/public/v1/fund_lof_spot` — 60s 缓存，支持 `?symbol=166009` 筛选
+
+### LOF 历史行情
+
+`GET /api/public/v1/fund_lof_hist?symbol=166009`
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/fund_lof_hist?symbol=166009"
+```
+
+---
+
+## 场外基金接口
+
+### 场外基金列表
+
+`GET /api/public/v1/fund_open_list` — 全部开放式基金 + 最新净值，每日缓存，支持分页
+
+### 场外基金历史净值
+
+`GET /api/public/v1/fund_open_hist?symbol=710001&indicator=单位净值走势&period=成立来`
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/fund_open_hist?symbol=710001"
 ```
 
 ---
@@ -130,6 +162,82 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_list"
 
 ```sh
 curl "http://127.0.0.1:8080/api/public/v1/fund_list?page=1&page_size=50"
+```
+
+---
+
+## 可转债接口
+
+### 可转债列表
+
+`GET /api/public/v1/bond_cov_list` — 每日缓存，含转股价、溢价率等核心指标，支持分页
+
+### 可转债实时行情
+
+`GET /api/public/v1/bond_cov_spot` — 60s 缓存，支持 `?symbol=sh123121` 筛选
+
+### 可转债历史行情
+
+`GET /api/public/v1/bond_cov_hist?symbol=sh010107`
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/bond_cov_hist?symbol=sh010107"
+```
+
+---
+
+## 期货接口
+
+### 期货实时行情
+
+`GET /api/public/v1/futures_spot` — 国际期货，60s 缓存，支持 `?symbol=HG00Y` 筛选
+
+### 期货历史行情
+
+`GET /api/public/v1/futures_hist?symbol=HG00Y`
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/futures_hist?symbol=HG00Y"
+```
+
+---
+
+## 指数接口
+
+### 指数列表
+
+`GET /api/public/v1/index_list` — 全球指数代码，每日缓存，支持分页
+
+### 指数实时行情
+
+`GET /api/public/v1/index_spot` — 全球指数，60s 缓存，支持 `?symbol=OMX` 筛选
+
+### 指数历史行情
+
+`GET /api/public/v1/index_hist?symbol=OMX&source=sina`
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/index_hist?symbol=OMX&source=sina"
+```
+
+---
+
+## 港股接口
+
+### 港股列表
+
+`GET /api/public/v1/stock_hk_list` — 港股通成份股，每日缓存，支持分页与搜索
+
+### 港股实时行情
+
+`GET /api/public/v1/stock_hk_spot` — 60s 缓存，双源（eastmoney/sina），`?symbol=00700` 筛选
+
+### 港股历史行情
+
+`GET /api/public/v1/stock_hk_hist?symbol=00700&source=sina`
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/stock_hk_hist?symbol=00700&source=sina"
 ```
 
 ---
@@ -176,7 +284,7 @@ curl -X POST "http://127.0.0.1:8080/api/private/v1/default_source?source=sina" \
 # → {"default_source":"sina","previous":"eastmoney"}
 
 # 此后所有不传 ?source= 的请求默认使用 Sina
-curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=600000"
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist?symbol=600000"
 ```
 
 !!! note

@@ -83,7 +83,8 @@ _STATIC_CACHE_TTL = 86400  # 静态数据刷新间隔（秒，默认 1 天）
 _spot_cache = {}  # {key: {"data": [...], "ts": float}}
 _spot_cache_lock = threading.Lock()
 _spot_cache_warm = threading.Event()  # 首次刷新完成后置位
-_cache_paused = threading.Event()     # 暂停标志，set=已暂停
+_paused_keys = set()                  # 暂停的缓存 key，含 "*" 表示全局暂停
+_paused_lock = threading.Lock()
 _CACHE_TTL_OFF = 300                  # 非交易时段刷新间隔（秒）
 
 # A 股交易时段 (北京时间)
@@ -110,9 +111,11 @@ def _refresh_cache():
     cycle = 0
     _static_interval = max(1, _STATIC_CACHE_TTL // _CACHE_TTL)
     while True:
-        # 等待暂停解除
-        while _cache_paused.is_set():
-            time.sleep(1)
+        # 检查全局暂停
+        with _paused_lock:
+            if "*" in _paused_keys:
+                time.sleep(1)
+                continue
         cycle += 1
         market_open = _is_market_open()
         ttl = _CACHE_TTL if market_open else _CACHE_TTL_OFF
@@ -869,13 +872,22 @@ def default_source_set(
     summary="暂停自动刷新，已在进行的刷新不受影响",
 )
 def cache_pause(
+    keys: str = Query("", description="要暂停的缓存 key，逗号分隔，空=全部暂停"),
     _current_user: User = Depends(get_current_active_user),
 ):
-    _cache_paused.set()
-    logger.info("缓存刷新已暂停")
+    with _paused_lock:
+        if keys:
+            for k in keys.split(","):
+                _paused_keys.add(k.strip())
+            logger.info(f"缓存 {keys} 已暂停")
+        else:
+            _paused_keys.add("*")
+            logger.info("缓存刷新已全局暂停")
+    with _paused_lock:
+        current = sorted(_paused_keys)
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={"paused": True},
+        content={"paused": True, "paused_keys": current},
     )
 
 
@@ -885,13 +897,22 @@ def cache_pause(
     summary="恢复自动刷新",
 )
 def cache_resume(
+    keys: str = Query("", description="要恢复的缓存 key，逗号分隔，空=全部恢复"),
     _current_user: User = Depends(get_current_active_user),
 ):
-    _cache_paused.clear()
-    logger.info("缓存刷新已恢复")
+    with _paused_lock:
+        if keys:
+            for k in keys.split(","):
+                _paused_keys.discard(k.strip())
+            logger.info(f"缓存 {keys} 已恢复")
+        else:
+            _paused_keys.clear()
+            logger.info("缓存刷新已全部恢复")
+    with _paused_lock:
+        current = sorted(_paused_keys)
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={"paused": False},
+        content={"paused": len(current) > 0, "paused_keys": current},
     )
 
 
@@ -928,7 +949,7 @@ def cache_status(request: Request):
         status_code=status.HTTP_200_OK,
         content={
             "warm": _spot_cache_warm.is_set(),
-            "paused": _cache_paused.is_set(),
+            "paused": '*' in _paused_keys,
             "market_open": _is_market_open(),
             "caches": result,
         },
