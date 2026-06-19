@@ -98,10 +98,63 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000&source=e
 
 `GET /api/public/v1/stock_list`
 
-返回沪深京全部 A 股代码与名称列表，数据由后台缓存（每 60 秒刷新），响应 <10ms。
+返回沪深京全部 A 股代码与名称列表，数据由后台缓存（每日刷新），响应 <10ms。
+支持分页，响应包含 `X-Total-Count` 头部。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `page` | 否 | `0`（不分页） | 页码，1-based |
+| `page_size` | 否 | `100` | 每页条数，最大 1000 |
 
 ```sh
+# 分页获取
+curl "http://127.0.0.1:8080/api/public/v1/stock_list?page=1&page_size=50"
+
+# 不分页（返回全部）
 curl "http://127.0.0.1:8080/api/public/v1/stock_list"
+```
+
+---
+
+## 基金列表接口
+
+`GET /api/public/v1/fund_list`
+
+返回全部基金代码、简称与类型，数据由后台缓存（每日刷新），响应 <10ms。
+支持分页，响应包含 `X-Total-Count` 头部。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `page` | 否 | `0`（不分页） | 页码，1-based |
+| `page_size` | 否 | `100` | 每页条数，最大 1000 |
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/fund_list?page=1&page_size=50"
+```
+
+---
+
+## 美股接口
+
+### 美股列表
+
+`GET /api/public/v1/stock_us_list` — 每日缓存，支持分页与搜索
+
+### 美股实时行情
+
+`GET /api/public/v1/stock_us_spot` — 60s 缓存，支持 `?symbol=AAPL` 筛选
+
+### 美股历史行情
+
+`GET /api/public/v1/stock_us_hist?symbol=AAPL&source=sina`
+
+| 数据源 | 代码格式 | 上游 |
+| ----- | ----- | ----- |
+| `sina` | `AAPL` | 新浪财经 |
+| `eastmoney` | `105.MSFT` | 东方财富 |
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/stock_us_hist?symbol=AAPL&source=sina"
 ```
 
 ---
@@ -110,15 +163,16 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_list"
 
 `GET /api/public/v1/default_source` — 查看当前默认数据源
 
-`POST /api/public/v1/default_source?source=<name>` — 运行时切换默认数据源
+`POST /api/private/v1/default_source?source=<name>` — 切换（需要认证）
 
 ```sh
-# 查看当前设置
+# 查看当前设置（无需认证）
 curl http://127.0.0.1:8080/api/public/v1/default_source
 # → {"default_source":"eastmoney","available":["eastmoney","sina","tencent"]}
 
-# 切换到 Sina（即时生效，无需重启）
-curl -X POST "http://127.0.0.1:8080/api/public/v1/default_source?source=sina"
+# 切换到 Sina（需要认证）
+curl -X POST "http://127.0.0.1:8080/api/private/v1/default_source?source=sina" \
+  -H "Authorization: Bearer <token>"
 # → {"default_source":"sina","previous":"eastmoney"}
 
 # 此后所有不传 ?source= 的请求默认使用 Sina
@@ -157,8 +211,13 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=600000"
 ### 暂停/恢复
 
 ```sh
-curl -X POST "http://127.0.0.1:8080/api/public/v1/cache/pause"
-curl -X POST "http://127.0.0.1:8080/api/public/v1/cache/resume"
+# 暂停（需要认证）
+curl -X POST "http://127.0.0.1:8080/api/private/v1/cache/pause" \
+  -H "Authorization: Bearer <token>"
+
+# 恢复（需要认证）
+curl -X POST "http://127.0.0.1:8080/api/private/v1/cache/resume" \
+  -H "Authorization: Bearer <token>"
 ```
 
 ### 数据新鲜度
@@ -185,3 +244,4 @@ Warning: 110 - "Response is Stale"
 | ----- | ----- | ----- |
 | `AKSHARE_PROXY` | HTTP/HTTPS 代理地址 | 无（直连） |
 | `AKSHARE_DEFAULT_SOURCE` | 默认数据源 | `eastmoney` |
+| `AKTOOLS_TOKENS_FILE` | 预配置 Token JSON 文件路径 | 无 |

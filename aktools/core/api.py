@@ -61,9 +61,20 @@ _FUND_ETF_HIST_SOURCE_MAP = {
     "sina": {"func": ak.fund_etf_hist_sina, "prefixed": True},
 }
 
+# US 股票数据源
+_US_SPOT_SOURCE_MAP = {
+    "eastmoney": ak.stock_us_spot_em,
+}
+
+_US_HIST_SOURCE_MAP = {
+    "eastmoney": {"func": ak.stock_us_hist, "prefixed": False},
+    "sina": {"func": ak.stock_us_daily, "prefixed": False},
+}
+
 _STATIC_CACHE_MAP = {
     "stock_list": ak.stock_info_a_code_name,
     "fund_list": ak.fund_name_em,
+    "stock_us_list": ak.get_us_stock_name,
 }
 
 # ── 缓存（后台线程定期刷新） ──────────────────────────────────
@@ -127,6 +138,17 @@ def _refresh_cache():
                     logger.info(f"缓存已刷新: fund_etf_spot ({len(data)} 条)")
             except Exception as e:
                 logger.warning(f"刷新缓存失败 [fund_etf_spot]: {e}")
+        # 刷新实时行情（每周期）— US
+        for source, func in _US_SPOT_SOURCE_MAP.items():
+            try:
+                df = func()
+                if df is not None:
+                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    with _spot_cache_lock:
+                        _spot_cache["stock_us_spot"] = {"data": data, "ts": time.time()}
+                    logger.info(f"缓存已刷新: stock_us_spot ({len(data)} 条)")
+            except Exception as e:
+                logger.warning(f"刷新缓存失败 [stock_us_spot]: {e}")
 
         # 静态数据仅在启动或每 _static_interval 个周期刷新
         if cycle == 1 or cycle % _static_interval == 0:
@@ -663,34 +685,153 @@ def fund_etf_hist_universal(
 
 
 @app_core.get(
-    path="/public/v1/default_source",
-    description="查看 / 切换默认数据源",
-    summary="GET 返回当前默认源，POST 切换默认源",
+    path="/public/v1/stock_us_list",
+    description="美股代码列表 (v1, 缓存)",
+    summary="返回美股代码与名称，数据来自后台缓存，响应 <10ms",
 )
-@app_core.post(
-    path="/public/v1/default_source",
-    description="查看 / 切换默认数据源",
-    summary="GET 返回当前默认源，POST 切换默认源",
-)
-def default_source(
+def stock_us_list_cached(
     request: Request,
-    source: Optional[str] = Query(None, description="新默认源: eastmoney / sina / tencent"),
+    page: int = Query(0, ge=0, description="页码，0=不分页"),
+    page_size: int = Query(100, ge=1, le=1000, description="每页条数（最大 1000）"),
 ):
-    global DEFAULT_SOURCE
-    if request.method == "POST" and source:
-        if source not in _SOURCE_MAP:
-            valid = ", ".join(_SOURCE_MAP)
-            return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                content={"error": f"不支持的数据源: {source}，可选: {valid}"},
-            )
-        old = DEFAULT_SOURCE
-        DEFAULT_SOURCE = source
-        logger.info(f"默认数据源切换: {old} → {source}")
+    with _spot_cache_lock:
+        entry = _spot_cache.get("stock_us_list")
+
+    if entry is not None:
+        data = entry["data"]
+        age = int(time.time() - entry["ts"])
+        total = len(data)
+        if page > 0:
+            start = (page - 1) * page_size
+            data = data[start : start + page_size]
+        logger.info(f"美股列表缓存命中: age={age}s, page={page}, returned={len(data)}/{total}")
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={"default_source": DEFAULT_SOURCE, "previous": old},
+            content=data,
+            headers={"X-Total-Count": str(total)},
         )
+
+    if not _spot_cache_warm.is_set():
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "缓存预热中，请稍后重试"},
+            headers={"Retry-After": "30"},
+        )
+
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={"error": "美股列表数据源不可用，请稍后重试"},
+    )
+
+
+@app_core.get(
+    path="/public/v1/stock_us_spot",
+    description="美股实时行情接口 (v1, 缓存)",
+    summary="返回美股实时行情，数据来自后台缓存，响应 <10ms",
+)
+def stock_us_spot_cached(
+    request: Request,
+    symbol: str = Query("", description="美股代码筛选，如 AAPL，留空返回全市场"),
+):
+    cache_key = "stock_us_spot"
+    with _spot_cache_lock:
+        entry = _spot_cache.get(cache_key)
+
+    if entry is not None:
+        data = entry["data"]
+        age = int(time.time() - entry["ts"])
+        stale_headers = _stale_headers(entry["ts"])
+        logger.info(f"美股行情缓存命中: age={age}s, count={len(data)}")
+    elif not _spot_cache_warm.is_set():
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "美股行情缓存预热中，请稍后重试"},
+            headers={"Retry-After": "30"},
+        )
+    else:
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": "美股行情数据源不可用，请稍后重试"},
+        )
+
+    if symbol:
+        code = symbol.strip().upper()
+        data = [row for row in data if code in str(row.get("代码", row.get("code", ""))).upper()]
+        if not data:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": f"未找到美股代码: {symbol}"},
+            )
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK, content=data, headers=stale_headers
+    )
+
+
+@app_core.get(
+    path="/public/v1/stock_us_hist",
+    description="统一美股历史行情接口 (v1)",
+    summary="支持切换数据源（eastmoney/sina），方便海外用户访问",
+)
+def stock_us_hist_universal(
+    request: Request,
+    symbol: str = Query(..., description="美股代码，如 AAPL 或 105.MSFT"),
+    source: str = Query(
+        "", description=f"数据源，可选 eastmoney/sina，默认 {DEFAULT_SOURCE}"
+    ),
+    start_date: str = Query("19700101", description="开始日期 YYYYMMDD"),
+    end_date: str = Query("22220101", description="结束日期 YYYYMMDD"),
+    adjust: str = Query("", description="复权类型: 空=不复权, qfq=前复权, hfq=后复权"),
+):
+    source = source or DEFAULT_SOURCE
+    source_config = _US_HIST_SOURCE_MAP.get(source)
+    if source_config is None:
+        valid = ", ".join(_US_HIST_SOURCE_MAP)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": f"不支持的数据源: {source}，可选: {valid}"},
+        )
+
+    logger.info(f"美股历史: symbol={symbol}, source={source}")
+
+    try:
+        received_df = _call_akshare_direct(
+            source_config["func"],
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            adjust=adjust,
+        )
+        if received_df is None:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "该接口返回数据为空，请确认参数是否正确"},
+            )
+        temp_df = received_df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        logger.error(f"美股历史 {source} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={
+                "error": f"{source} 数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次，请稍后重试或切换数据源"
+            },
+        )
+    except Exception as e:
+        logger.error(f"美股历史调用失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"数据接口调用异常: {e}"},
+        )
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/public/v1/default_source",
+    description="查看默认数据源",
+    summary="返回当前默认数据源及可用选项",
+)
+def default_source_get():
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={"default_source": DEFAULT_SOURCE, "available": list(_SOURCE_MAP)},
@@ -698,11 +839,38 @@ def default_source(
 
 
 @app_core.post(
-    path="/public/v1/cache/pause",
+    path="/private/v1/default_source",
+    description="切换默认数据源",
+    summary="切换默认数据源（需要认证）",
+)
+def default_source_set(
+    source: str = Query(..., description="新默认源: eastmoney / sina / tencent"),
+    _current_user: User = Depends(get_current_active_user),
+):
+    global DEFAULT_SOURCE
+    if source not in _SOURCE_MAP:
+        valid = ", ".join(_SOURCE_MAP)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": f"不支持的数据源: {source}，可选: {valid}"},
+        )
+    old = DEFAULT_SOURCE
+    DEFAULT_SOURCE = source
+    logger.info(f"默认数据源切换: {old} → {source}")
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"default_source": DEFAULT_SOURCE, "previous": old},
+    )
+
+
+@app_core.post(
+    path="/private/v1/cache/pause",
     description="暂停缓存后台刷新",
     summary="暂停自动刷新，已在进行的刷新不受影响",
 )
-def cache_pause():
+def cache_pause(
+    _current_user: User = Depends(get_current_active_user),
+):
     _cache_paused.set()
     logger.info("缓存刷新已暂停")
     return JSONResponse(
@@ -712,11 +880,13 @@ def cache_pause():
 
 
 @app_core.post(
-    path="/public/v1/cache/resume",
+    path="/private/v1/cache/resume",
     description="恢复缓存后台刷新",
     summary="恢复自动刷新",
 )
-def cache_resume():
+def cache_resume(
+    _current_user: User = Depends(get_current_active_user),
+):
     _cache_paused.clear()
     logger.info("缓存刷新已恢复")
     return JSONResponse(
@@ -737,6 +907,8 @@ def cache_status(request: Request):
         _intervals["stock_spot_" + s] = _CACHE_TTL
     for s in _FUND_SPOT_SOURCE_MAP:
         _intervals["fund_etf_spot"] = _CACHE_TTL
+    for s in _US_SPOT_SOURCE_MAP:
+        _intervals["stock_us_spot"] = _CACHE_TTL
     for k in _STATIC_CACHE_MAP:
         _intervals[k] = _STATIC_CACHE_TTL
 
@@ -833,6 +1005,28 @@ def fund_search(
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"error": "基金列表缓存未就绪，请稍后重试"},
+        )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content=matches,
+        headers={"X-Total-Count": str(total)},
+    )
+
+
+@app_core.get(
+    path="/public/v1/stock_us_search",
+    description="美股代码/名称搜索 (v1)",
+    summary="基于缓存列表搜索美股代码或名称，支持模糊匹配",
+)
+def stock_us_search(
+    q: str = Query(..., min_length=1, description="搜索关键词（子串匹配，非前缀匹配）"),
+    limit: int = Query(20, ge=0, le=1000, description="最大返回条数，0=不限制"),
+):
+    matches, total = _search_cache("stock_us_list", q, limit, "code", "name")
+    if matches is None:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "美股列表缓存未就绪，请稍后重试"},
         )
     return JSONResponse(
         status_code=status.HTTP_200_OK,

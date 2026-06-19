@@ -99,6 +99,67 @@ curl "http://127.0.0.1:8080/api/public/stock_hk_daily?symbol=00700&start_date=20
 
 ---
 
+## 数据接口 — V1 美股
+
+### 美股列表
+
+`GET /api/public/v1/stock_us_list`
+
+返回美股代码与名称，数据由后台缓存（每日刷新），响应 <10ms。支持分页。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `page` | 否 | `0`（不分页） | 页码，1-based |
+| `page_size` | 否 | `100` | 每页条数，最大 1000 |
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/stock_us_list?page=1&page_size=50"
+```
+
+### 美股搜索
+
+`GET /api/public/v1/stock_us_search?q=AAPL`
+
+基于缓存列表搜索美股代码或名称（子串匹配，大小写不敏感）。
+
+### 美股实时行情
+
+`GET /api/public/v1/stock_us_spot`
+
+返回美股实时行情，支持按代码筛选，数据由后台缓存（60s 刷新）。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 否 | 空（全市场） | 美股代码筛选，如 `AAPL` |
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/stock_us_spot?symbol=AAPL"
+```
+
+### 美股历史行情
+
+`GET /api/public/v1/stock_us_hist`
+
+支持切换数据源（eastmoney / sina），带自动重试。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | 美股代码，如 `AAPL` 或 `105.MSFT` |
+| `source` | 否 | `eastmoney` | `eastmoney` / `sina` |
+| `start_date` | 否 | `19700101` | 开始日期 YYYYMMDD |
+| `end_date` | 否 | `22220101` | 结束日期 YYYYMMDD |
+| `adjust` | 否 | `""` | 复权类型 |
+
+```sh
+# Sina 源（简洁代码）
+curl "http://127.0.0.1:8080/api/public/v1/stock_us_hist?symbol=AAPL&source=sina"
+
+# East Money 源（交易所前缀代码）
+curl "http://127.0.0.1:8080/api/public/v1/stock_us_hist?symbol=105.MSFT&source=eastmoney"
+```
+
+---
+
 ## 数据接口 — V1 版本化
 
 ### 统一 A 股历史行情
@@ -161,17 +222,26 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000"
 
 返回沪深京全部 A 股代码与名称，数据由后台缓存，响应 <10ms。
 
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `page` | 否 | `0`（不分页） | 页码，1-based |
+| `page_size` | 否 | `100` | 每页条数，最大 1000 |
+
 ```sh
+# 第一页，每页 50 条
+curl "http://127.0.0.1:8080/api/public/v1/stock_list?page=1&page_size=50"
+
+# 不分页（返回全部）
 curl "http://127.0.0.1:8080/api/public/v1/stock_list"
 ```
 
-响应示例：
+响应包含 `X-Total-Count` 头部，示例：
 
 ```json
 [
-  {"代码": "000001", "名称": "平安银行"},
-  {"代码": "000002", "名称": "万科A"},
-  {"代码": "600000", "名称": "浦发银行"}
+  {"code": "000001", "name": "平安银行"},
+  {"code": "000002", "name": "万科A"},
+  {"code": "600000", "name": "浦发银行"}
 ]
 ```
 
@@ -185,9 +255,17 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_list"
 
 返回全部基金代码、简称与类型，数据由后台缓存（每日刷新），响应 <10ms。
 
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `page` | 否 | `0`（不分页） | 页码，1-based |
+| `page_size` | 否 | `100` | 每页条数，最大 1000 |
+
 ```sh
-curl "http://127.0.0.1:8080/api/public/v1/fund_list"
+# 第一页，每页 50 条
+curl "http://127.0.0.1:8080/api/public/v1/fund_list?page=1&page_size=50"
 ```
+
+响应包含 `X-Total-Count` 头部，列出基金代码、简称与类型。
 
 ### ETF 实时行情
 
@@ -249,20 +327,22 @@ curl "http://127.0.0.1:8080/api/public/v1/fund_search?q=华夏&limit=0"
 
 ### 缓存控制
 
-`POST /api/public/v1/cache/pause` — 暂停后台自动刷新
+`POST /api/private/v1/cache/pause` — 暂停后台自动刷新
 
-`POST /api/public/v1/cache/resume` — 恢复后台自动刷新
+`POST /api/private/v1/cache/resume` — 恢复后台自动刷新
 
 `GET /api/public/v1/cache_status` — 查看缓存状态
 
 ```sh
-# 暂停
-curl -X POST "http://127.0.0.1:8080/api/public/v1/cache/pause"
+# 暂停（需要认证）
+curl -X POST "http://127.0.0.1:8080/api/private/v1/cache/pause" \
+  -H "Authorization: Bearer <token>"
 
-# 恢复
-curl -X POST "http://127.0.0.1:8080/api/public/v1/cache/resume"
+# 恢复（需要认证）
+curl -X POST "http://127.0.0.1:8080/api/private/v1/cache/resume" \
+  -H "Authorization: Bearer <token>"
 
-# 查看状态
+# 查看状态（公开，无需认证）
 curl "http://127.0.0.1:8080/api/public/v1/cache_status"
 ```
 
@@ -300,15 +380,16 @@ Warning: 110 - "Response is Stale (age=85s)"
 
 `GET /api/public/v1/default_source` — 查看当前默认源
 
-`POST /api/public/v1/default_source?source=<name>` — 运行时切换
+`POST /api/private/v1/default_source?source=<name>` — 切换（需要认证）
 
 ```sh
-# 查看
+# 查看（无需认证）
 curl http://127.0.0.1:8080/api/public/v1/default_source
 # → {"default_source":"eastmoney","available":["eastmoney","sina","tencent"]}
 
-# 切换为 Sina（即时生效，无需重启）
-curl -X POST "http://127.0.0.1:8080/api/public/v1/default_source?source=sina"
+# 切换为 Sina（需要认证）
+curl -X POST "http://127.0.0.1:8080/api/private/v1/default_source?source=sina" \
+  -H "Authorization: Bearer <token>"
 # → {"default_source":"sina","previous":"eastmoney"}
 ```
 
@@ -318,31 +399,82 @@ curl -X POST "http://127.0.0.1:8080/api/public/v1/default_source?source=sina"
 
 ## 认证
 
-AKTools 使用 OAuth2 Password Bearer 流程（当前为简化实现）。
+AKTools 使用 **API Token** 认证（SQLite 持久化）。
 
-### 获取 Token
+### 首次启动
 
-`POST /auth/token`
+服务器首次启动时，若 `tokens.db` 为空，会自动创建一个 root token 并打印到日志：
 
-Content-Type: `application/x-www-form-urlencoded`
+```
+============================================================
+ ROOT API TOKEN (shown once): akt_f1f22e9bbf...
+ Save this token — it's required to manage other tokens.
+============================================================
+```
 
-| 参数 | 值 |
-| ----- | ----- |
-| `username` | `akshare` |
-| `password` | `akfamily` |
+### 预配置 Token 文件
+
+通过 JSON 文件预置 Token（由文件系统权限保护）：
+
+```json
+[
+  {"token": "akt_...", "user_name": "myapp"},
+  {"token": "akt_...", "user_name": "monitoring"}
+]
+```
 
 ```sh
-curl -X POST "http://127.0.0.1:8080/auth/token" \
-  -d "username=akshare&password=akfamily"
-# → {"access_token":"akshare","token_type":"bearer"}
+# 设置文件权限
+chmod 600 /etc/aktools/tokens.json
+
+# 通过环境变量指定
+AKTOOLS_TOKENS_FILE=/etc/aktools/tokens.json python -m aktools
 ```
+
+服务启动时自动导入，已存在的 Token 跳过。若文件提供了至少一个 Token，则不自动创建 root token。
+
+### API Token 管理
+
+`POST /api/private/v1/tokens` — 创建 Token（仅返回一次）
+
+`GET /api/private/v1/tokens` — 列出所有 Token（不含完整 Token）
+
+`DELETE /api/private/v1/tokens?token=<full>` — 撤销 Token
+
+```sh
+# 创建 Token（需要认证）
+curl -X POST "http://127.0.0.1:8080/api/private/v1/tokens?user=myapp" \
+  -H "Authorization: Bearer <root-token>"
+# → {"token":"akt_a1b2c3d4...","user_name":"myapp"}
+
+# 列出 Token
+curl "http://127.0.0.1:8080/api/private/v1/tokens" \
+  -H "Authorization: Bearer <root-token>"
+
+# 撤销 Token
+curl -X DELETE "http://127.0.0.1:8080/api/private/v1/tokens?token=akt_a1b2c3d4..." \
+  -H "Authorization: Bearer <root-token>"
+```
+
+使用 Token 访问私有接口：
+
+```sh
+curl -H "Authorization: Bearer akt_a1b2c3d4..." \
+  "http://127.0.0.1:8080/api/private/stock_zh_a_hist?symbol=600000"
+```
+
+Token 存储在 `aktools/tokens.db`（SQLite），服务器重启后依然有效。
 
 ### 使用 Token 访问私有接口
 
 ```sh
-curl -H "Authorization: Bearer akshare" \
+curl -H "Authorization: Bearer akt_..." \
   "http://127.0.0.1:8080/api/private/stock_zh_a_hist?symbol=600000"
 ```
+
+!!! note "旧凭据已废弃"
+    原有的 `akshare`/`akfamily` 用户名密码登录已禁用。
+    `POST /auth/token` 返回 410，引导用户使用 API Token。
 
 ---
 
@@ -378,3 +510,4 @@ curl -H "Authorization: Bearer akshare" \
 | ----- | ----- | ----- |
 | `AKSHARE_PROXY` | HTTP/HTTPS 代理，如 `http://127.0.0.1:7890` | 无 |
 | `AKSHARE_DEFAULT_SOURCE` | V1 历史接口默认数据源 | `eastmoney` |
+| `AKTOOLS_TOKENS_FILE` | 预配置 Token 的 JSON 文件路径 | 无 |

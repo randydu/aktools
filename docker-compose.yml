@@ -11,4 +11,7 @@ services:
       AKSHARE_PROXY: ""
       # 默认数据源: eastmoney / sina / tencent（海外用户推荐 sina 或 tencent）
       AKSHARE_DEFAULT_SOURCE: "eastmoney"
+      # ---- 认证 ----
+      # 预配置 Token 的 JSON 文件路径（可选，文件权限应设为 600）
+      # AKTOOLS_TOKENS_FILE: /run/secrets/aktools_tokens
     restart: unless-stopped

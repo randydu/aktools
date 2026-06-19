@@ -27,6 +27,7 @@ curl http://127.0.0.1:8080/version
 | ----- | :---: | ----- | ----- |
 | `AKSHARE_PROXY` | 否 | 空 | HTTP/HTTPS 代理地址，如 `http://host.docker.internal:7890` |
 | `AKSHARE_DEFAULT_SOURCE` | 否 | `eastmoney` | 默认数据源：`eastmoney` / `sina` / `tencent` |
+`AKTOOLS_TOKENS_FILE` | 否 | 空 | 预配置 Token 的 JSON 文件路径 |
 
 ### 海外用户配置
 
@@ -95,10 +96,10 @@ docker compose down
 
 ```sh
 # 查看当前默认源
-curl http://127.0.0.1:8080/api/v1/default_source
+curl http://127.0.0.1:8080/api/public/v1/default_source
 
 # 切换为 Sina
-curl -X POST "http://127.0.0.1:8080/api/v1/default_source?source=sina"
+curl -X POST "http://127.0.0.1:8080/api/private/v1/default_source?source=sina"
 ```
 
 切换后仅当次进程生命周期有效。容器重启后回退为 `AKSHARE_DEFAULT_SOURCE` 环境变量的值。

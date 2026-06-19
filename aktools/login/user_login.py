@@ -2,8 +2,9 @@
 # !/usr/bin/env python
 """
 Date: 2022/8/18 20:16
-Desc: 登录文件
+Desc: 登录文件 (v2 — SQLite token store)
 """
+import logging
 from typing import Optional
 
 from fastapi import APIRouter
@@ -11,25 +12,11 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
+from aktools.auth.token_store import token_store
+
+logger = logging.getLogger("AKToolsLog")
 app_user_login = APIRouter()
-
-# 用户伪数据库，此处需要修改为 SQLite 数据库
-fake_users_db = {
-    "akshare": {
-        "username": "akshare",
-        "full_name": "AKShare AKFamily",
-        "email": "akfamily.akshare@gmail.com",
-        "hashed_password": "fakehashedakfamily",
-        "disabled": False,
-    },
-}
-
-
-def fake_hash_password(password: str):
-    return "fakehashed" + password
-
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token", auto_error=False)
 
 
 class User(BaseModel):
@@ -39,32 +26,22 @@ class User(BaseModel):
     disabled: Optional[bool] = None
 
 
-class UserInDB(User):
-    hashed_password: str
-
-
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
-        return UserInDB(**user_dict)
-
-
-def fake_decode_token(token):
-    # This doesn't provide any security at all
-    # Check the next version
-    user = get_user(fake_users_db, token)
-    return user
-
-
 async def get_current_user(token: str = Depends(oauth2_scheme)):
-    user = fake_decode_token(token)
-    if not user:
+    """Validate API token from SQLite store."""
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user_name = token_store.validate(token)
+    if not user_name:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return user
+    return User(username=user_name)
 
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
@@ -75,15 +52,21 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
 
 @app_user_login.post("/token")
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    """
-    用户获取 token 的接口
-    """
-    user_dict = fake_users_db.get(form_data.username)
-    if not user_dict:
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-    user = UserInDB(**user_dict)
-    hashed_password = fake_hash_password(form_data.password)
-    if not hashed_password == user.hashed_password:
-        raise HTTPException(status_code=400, detail="Incorrect username or password")
-
-    return {"access_token": user.username, "token_type": "bearer"}
+    """Legacy login — returns the first active token from the store."""
+    tokens = token_store.list_tokens()
+    active = [t for t in tokens if not t["revoked"]]
+    if not active:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No API tokens configured. Check server logs for the auto-created root token.",
+        )
+    # Return the first active token's prefix as a hint; the full token must be
+    # retrieved from the server log or created via a valid token.
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Username/password login is deprecated. "
+            "Use an API token with 'Authorization: Bearer <token>'. "
+            "Token management: POST /api/public/v1/tokens"
+        ),
+    )
