@@ -1,5 +1,23 @@
 # ChangeLog
 
+## 0.0.97
+
+### Added
+
+- HK stock universal APIs — `stock_hk_list`, `stock_hk_spot`, `stock_hk_hist`, `stock_hk_search`
+- LOF universal APIs — `fund_lof_spot`, `fund_lof_hist`
+- Open-end fund universal APIs — `fund_open_list`, `fund_open_hist`, `fund_open_search`
+- Futures universal APIs — `futures_spot`, `futures_hist`
+- Index universal APIs — `index_list`, `index_spot`, `index_hist`, `index_search`
+- Convertible bond universal APIs — `bond_cov_list`, `bond_cov_spot`, `bond_cov_hist`, `bond_cov_search`
+- Search endpoints for index, bond_cov, fund_open categories
+- Per-key cache pause/resume via `?keys=` parameter (e.g., `?keys=stock_us_spot,stock_us_list`)
+
+### Changed
+
+- Cache pause/resume now supports fine-grained per-key control; backward compatible
+- `cache_status` response includes `paused_keys` array
+
 ## 0.0.96
 
 ### Added

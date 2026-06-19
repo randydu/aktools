@@ -99,8 +99,9 @@ Changelog
 0.0.94: add: cached spot API and stock list API with independent refresh intervals
 0.0.95: add: fund/ETF APIs, search, smart cache engine, pagination
 0.0.96: add: token auth, US stock APIs, private/v1 management endpoints
+0.0.97: add: HK, LOF, open-fund, futures, index, bond APIs + per-key cache control
 """
 
 __title__ = "AKTools"
-__version__ = "0.0.96"
+__version__ = "0.0.97"
 __author__ = "AKFamily"
