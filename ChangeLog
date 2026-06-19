@@ -1,5 +1,13 @@
 # ChangeLog
 
+## 0.1.1
+
+### Fixed
+
+- `NameError: logger not defined` during cache restore at startup
+- A-share cache key migration on load (`stock_list` → `stock_cn_list`, `stock_spot_*` → `stock_cn_spot_*`)
+- Better startup logging for cache.db status (missing / empty / error)
+
 ## 0.1.0
 
 First stable release of the AKTools v1 universal API layer. 30+ endpoints across 10 financial categories with smart caching, multi-source switching, API token auth, and Docker support.
@@ -16,7 +24,7 @@ First stable release of the AKTools v1 universal API layer. 30+ endpoints across
 
 | Category | List | Spot | History | Search |
 |---|---|---|---|---|
-| A-shares | stock_list | stock_zh_a_spot | stock_zh_a_hist | stock_search |
+| A-shares | stock_cn_list | stock_cn_spot | stock_cn_hist | stock_cn_search |
 | US stocks | stock_us_list | stock_us_spot | stock_us_hist | stock_us_search |
 | HK stocks | stock_hk_list | stock_hk_spot | stock_hk_hist | stock_hk_search |
 | ETF | fund_list | fund_etf_spot | fund_etf_hist | fund_search |

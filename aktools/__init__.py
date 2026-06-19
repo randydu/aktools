@@ -101,8 +101,9 @@ Changelog
 0.0.96: add: token auth, US stock APIs, private/v1 management endpoints
 0.0.97: add: HK, LOF, open-fund, futures, index, bond APIs + per-key cache control
 0.1.0: first stable release of universal v1 API layer
+0.1.1: fix logger NameError at startup + cache key migration
 """
 
 __title__ = "AKTools"
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "AKFamily"
