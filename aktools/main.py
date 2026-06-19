@@ -10,9 +10,15 @@ import sys
 # 添加 package 查找路径，该行必须在前面，否则不能导入相关的模块
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-import akshare
+import akshare as ak
 import aktools
 import uvicorn
+
+# 支持通过环境变量设置代理，方便海外用户访问国内数据源
+# 示例: AKSHARE_PROXY=http://your-proxy:port
+_proxy = os.getenv("AKSHARE_PROXY")
+if _proxy:
+    ak.set_proxies({"http": _proxy, "https": _proxy})
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -30,7 +36,7 @@ html_path = get_homepage_html(file="homepage.html")
 app = FastAPI(
     title="欢迎访问 AKTools 为 AKShare 打造的 HTTP API 在线文档",
     description="AKTools 是 AKShare 的 HTTP API 工具, 主要目的是使 AKShare 的数据接口部署到服务器，从而让用户通过 HTTP 访问相关接口来获取所需要的数据",
-    version=akshare.__version__,
+    version=ak.__version__,
     redoc_url=None,
 )
 
@@ -55,7 +61,7 @@ async def get_homepage(request: Request):
         context={
             "request": request,
             "ip_address": request.headers["host"],
-            "ak_current_version": akshare.__version__,
+            "ak_current_version": ak.__version__,
             "at_current_version": aktools.__version__,
             "ak_latest_version": get_latest_version("akshare"),
             "at_latest_version": get_latest_version("aktools"),
@@ -72,7 +78,7 @@ async def get_homepage(request: Request):
 )
 async def get_version():
     return {
-        "ak_current_version": akshare.__version__,
+        "ak_current_version": ak.__version__,
         "at_current_version": aktools.__version__,
         "ak_latest_version": get_latest_version("akshare"),
         "at_latest_version": get_latest_version("aktools"),

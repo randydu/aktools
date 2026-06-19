@@ -7,20 +7,90 @@ Desc: HTTP 模式主文件
 import json
 import logging
 import os
+import re
+import time
 import urllib.parse
 from logging.handlers import TimedRotatingFileHandler
+from typing import Optional
 
 import akshare as ak
 from fastapi import APIRouter
 from fastapi import Depends, status
-from fastapi import Request
+from fastapi import Query, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import Timeout as RequestsTimeout
 
 from aktools.datasets import get_pyscript_html, get_template_path
 from aktools.login.user_login import User, get_current_active_user
 
 app_core = APIRouter()
+
+RETRY_MAX_ATTEMPTS = 3
+RETRY_DELAY_SECONDS = 5
+
+
+# ── 统一 A 股历史行情数据源配置 ──────────────────────────────────
+# 环境变量 AKSHARE_DEFAULT_SOURCE 设置默认源，可选: eastmoney / sina / tencent
+DEFAULT_SOURCE = os.getenv("AKSHARE_DEFAULT_SOURCE", "eastmoney")  # mutable — changed by /api/v1/default_source
+
+_SOURCE_MAP = {
+    "eastmoney": {"func": ak.stock_zh_a_hist, "prefixed": False},
+    "sina": {"func": ak.stock_zh_a_daily, "prefixed": True},
+    "tencent": {"func": ak.stock_zh_a_hist_tx, "prefixed": True},
+}
+
+
+def _normalize_symbol(symbol: str, prefixed: bool) -> str:
+    """Normalize a stock code to the format expected by the data source.
+
+    East Money expects bare codes (``600000``); Sina / Tencent expect
+    exchange-prefixed codes (``sh600000``, ``sz000001``).  If the user
+    passes a prefixed code to East Money the prefix is stripped; if an
+    unprefixed code is passed to Sina/Tencent the exchange is inferred
+    from the first digit (5/6/9 → sh, 0/2/3 → sz).
+    """
+    symbol = symbol.strip().lower()
+    prefixed_in = symbol.startswith(("sh", "sz"))
+    code = symbol[2:] if prefixed_in else symbol
+    if prefixed:
+        if prefixed_in:
+            return symbol
+        return f"sh{code}" if re.match(r"[569]", code) else f"sz{code}"
+    return code
+
+
+def _call_akshare(item_id: str, eval_str: str):
+    """Call an AKShare function with retry on transient network errors."""
+    code = f"ak.{item_id}({eval_str})" if eval_str else f"ak.{item_id}()"
+    for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
+        try:
+            return eval(code)
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            if attempt == RETRY_MAX_ATTEMPTS:
+                raise
+            logger.warning(
+                f"接口 {item_id} 第 {attempt}/{RETRY_MAX_ATTEMPTS} 次尝试失败: {e}，"
+                f"{RETRY_DELAY_SECONDS} 秒后重试..."
+            )
+            time.sleep(RETRY_DELAY_SECONDS)
+
+
+def _call_akshare_direct(func, **kwargs):
+    """Call an AKShare function directly with retry."""
+    for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
+        try:
+            return func(**kwargs)
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            if attempt == RETRY_MAX_ATTEMPTS:
+                raise
+            logger.warning(
+                f"第 {attempt}/{RETRY_MAX_ATTEMPTS} 次尝试失败: {e}，"
+                f"{RETRY_DELAY_SECONDS} 秒后重试..."
+            )
+            time.sleep(RETRY_DELAY_SECONDS)
+
 
 # 创建一个日志记录器
 logger = logging.getLogger(name='AKToolsLog')
@@ -70,7 +140,7 @@ def root(
     eval_str = decode_params.replace("&", '", ').replace("=", '="') + '"'
     if not bool(request.query_params):
         try:
-            received_df = eval("ak." + item_id + "()")
+            received_df = _call_akshare(item_id, "")
             if received_df is None:
                 return JSONResponse(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -82,12 +152,28 @@ def root(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "error": f"请输入正确的参数错误 {e}，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz"
+                },
+            )
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            logger.error(f"接口 {item_id} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={
+                    "error": f"上游数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次，请稍后重试"
+                },
+            )
+        except Exception as e:
+            logger.error(f"接口 {item_id} 调用失败: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={
+                    "error": f"数据接口调用异常: {e}，可能是上游数据源暂时不可用，请稍后重试"
                 },
             )
         return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
     else:
         try:
-            received_df = eval("ak." + item_id + f"({eval_str})")
+            received_df = _call_akshare(item_id, eval_str)
             if received_df is None:
                 return JSONResponse(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -101,7 +187,118 @@ def root(
                     "error": f"请输入正确的参数错误 {e}，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz"
                 },
             )
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            logger.error(f"接口 {item_id} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={
+                    "error": f"上游数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次，请稍后重试"
+                },
+            )
+        except Exception as e:
+            logger.error(f"接口 {item_id} 调用失败: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={
+                    "error": f"数据接口调用异常: {e}，可能是上游数据源暂时不可用，请稍后重试"
+                },
+            )
         return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/public/v1/stock_zh_a_hist",
+    description="统一 A 股历史行情接口 (v1)",
+    summary="支持切换数据源（eastmoney/sina/tencent），方便海外用户访问",
+)
+def stock_zh_a_hist_universal(
+    request: Request,
+    symbol: str = Query(..., description="股票代码，如 600000 或 sh600000"),
+    source: str = Query(
+        "", description=f"数据源，可选 eastmoney/sina/tencent，默认 {DEFAULT_SOURCE}"
+    ),
+    start_date: str = Query("19900101", description="开始日期 YYYYMMDD"),
+    end_date: str = Query("20500101", description="结束日期 YYYYMMDD"),
+    adjust: str = Query("", description="复权类型: 空=不复权, qfq=前复权, hfq=后复权"),
+):
+    source = source or DEFAULT_SOURCE
+    source_config = _SOURCE_MAP.get(source)
+    if source_config is None:
+        valid = ", ".join(_SOURCE_MAP)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": f"不支持的数据源: {source}，可选: {valid}"},
+        )
+
+    normalized = _normalize_symbol(symbol, source_config["prefixed"])
+    logger.info(f"统一接口: symbol={symbol} → {normalized}, source={source}")
+
+    try:
+        received_df = _call_akshare_direct(
+            source_config["func"],
+            symbol=normalized,
+            start_date=start_date,
+            end_date=end_date,
+            adjust=adjust,
+        )
+        if received_df is None:
+            logger.info("该接口返回数据为空，请确认参数是否正确")
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "该接口返回数据为空，请确认参数是否正确"},
+            )
+        temp_df = received_df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        logger.error(f"统一接口 {source} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={
+                "error": f"{source} 数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次，请稍后重试或切换数据源"
+            },
+        )
+    except Exception as e:
+        logger.error(f"统一接口调用失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"数据接口调用异常: {e}"},
+        )
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/v1/default_source",
+    description="查看 / 切换默认数据源",
+    summary="GET 返回当前默认源，POST 切换默认源",
+)
+@app_core.post(
+    path="/v1/default_source",
+    description="查看 / 切换默认数据源",
+    summary="GET 返回当前默认源，POST 切换默认源",
+)
+def default_source(
+    request: Request,
+    source: Optional[str] = Query(None, description="新默认源: eastmoney / sina / tencent"),
+):
+    global DEFAULT_SOURCE
+    if request.method == "POST" and source:
+        if source not in _SOURCE_MAP:
+            valid = ", ".join(_SOURCE_MAP)
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": f"不支持的数据源: {source}，可选: {valid}"},
+            )
+        old = DEFAULT_SOURCE
+        DEFAULT_SOURCE = source
+        logger.info(f"默认数据源切换: {old} → {source}")
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"default_source": DEFAULT_SOURCE, "previous": old},
+        )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"default_source": DEFAULT_SOURCE, "available": list(_SOURCE_MAP)},
+    )
 
 
 @app_core.get(path="/public/{item_id}", description="公开接口", summary="该接口主要提供公开访问来获取数据")
@@ -140,7 +337,7 @@ def root(request: Request, item_id: str):
         eval_str = eval_str.replace("+", " ")  # 处理传递的参数中带空格的情况
     if not bool(request.query_params):
         try:
-            received_df = eval("ak." + item_id + "()")
+            received_df = _call_akshare(item_id, "")
             if received_df is None:
                 logger.info("该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz")
                 return JSONResponse(
@@ -157,11 +354,27 @@ def root(request: Request, item_id: str):
                     "error": f"请输入正确的参数错误 {e}，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz"
                 },
             )
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            logger.error(f"接口 {item_id} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={
+                    "error": f"上游数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次，请稍后重试"
+                },
+            )
+        except Exception as e:
+            logger.error(f"接口 {item_id} 调用失败: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={
+                    "error": f"数据接口调用异常: {e}，可能是上游数据源暂时不可用，请稍后重试"
+                },
+            )
         logger.info(f"获取到 {item_id} 的数据")
         return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
     else:
         try:
-            received_df = eval("ak." + item_id + f"({eval_str})")
+            received_df = _call_akshare(item_id, eval_str)
             if received_df is None:
                 logger.info("该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz")
                 return JSONResponse(
@@ -176,6 +389,22 @@ def root(request: Request, item_id: str):
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "error": f"请输入正确的参数错误 {e}，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz"
+                },
+            )
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            logger.error(f"接口 {item_id} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={
+                    "error": f"上游数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次，请稍后重试"
+                },
+            )
+        except Exception as e:
+            logger.error(f"接口 {item_id} 调用失败: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={
+                    "error": f"数据接口调用异常: {e}，可能是上游数据源暂时不可用，请稍后重试"
                 },
             )
         logger.info(f"获取到 {item_id} 的数据")

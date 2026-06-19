@@ -1,0 +1,66 @@
+# ChangeLog
+
+## 0.0.92 (unreleased)
+
+### Added
+
+- Unified A-share history API (v1) with multi-source switching — `GET /api/public/v1/stock_zh_a_hist`
+- Proxy support via `AKSHARE_PROXY` environment variable
+- Automatic retry on transient network errors (3 attempts, 5-second delay)
+- Runtime default data source toggle — `GET/POST /api/v1/default_source`
+- Comprehensive API reference documentation (`docs/api-reference.md`)
+- V1 API documentation (`docs/v1-api.md`)
+- REASONIX.md project knowledge base for AI assistants
+
+### Fixed
+
+- Unhandled AKShare exceptions now return 502 instead of 500
+- V1 routes registered before generic catch-all `/api/public/{item_id}` to avoid route mismatch
+
+## 0.0.91
+
+- fix: fix update python 3.14
+
+## 0.0.90
+
+- fix: fix get_latest_version
+
+## 0.0.89
+
+- fix: fix get_latest_version
+
+## 0.0.88
+
+- fix: fix update typer deps
+
+## 0.0.87
+
+- fix: fix update python 3.13
+
+## 0.0.86
+
+- add: add log function
+
+## 0.0.85
+
+- fix: update python version
+
+## 0.0.84
+
+- fix: fix homepage url
+
+## 0.0.83
+
+- fix: fix Dockerfile
+
+## 0.0.82
+
+- fix: fix connection.py
+
+## 0.0.81
+
+- add: add support for Python 3.11
+
+## 0.0.80
+
+- fix: fix uvicorn run command
