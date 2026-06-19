@@ -26,6 +26,8 @@ nav:
   - API 参考:
     - HTTP API 全集: api-reference.md
     - V1 新增接口: v1-api.md
+  - 部署:
+    - Docker 部署指南: docker-howto.md
   - 版本: aktools_version.md
 
 markdown_extensions:

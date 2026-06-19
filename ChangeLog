@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 0.0.93 (unreleased)
+
+### Added
+
+- Docker build script (`docker-build.sh`) and docker-compose file
+- Docker deployment guide (`docs/docker-howto.md`) with overseas user config
+
 ## 0.0.92
 
 ### Added

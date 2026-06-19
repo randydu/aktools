@@ -1,0 +1,14 @@
+services:
+  aktools:
+    build: .
+    image: aktools:latest
+    container_name: aktools
+    ports:
+      - "8080:8080"
+    environment:
+      # ---- 数据源 ----
+      # 海外用户推荐设为中国代理地址，如 http://host.docker.internal:7890
+      AKSHARE_PROXY: ""
+      # 默认数据源: eastmoney / sina / tencent（海外用户推荐 sina 或 tencent）
+      AKSHARE_DEFAULT_SOURCE: "eastmoney"
+    restart: unless-stopped
