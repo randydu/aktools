@@ -157,12 +157,12 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000"
 
 ### A 股股票列表
 
-`GET /api/public/v1/stock_info_a_code_name`
+`GET /api/public/v1/stock_list`
 
 返回沪深京全部 A 股代码与名称，数据由后台缓存，响应 <10ms。
 
 ```sh
-curl "http://127.0.0.1:8080/api/public/v1/stock_info_a_code_name"
+curl "http://127.0.0.1:8080/api/public/v1/stock_list"
 ```
 
 响应示例：
@@ -173,6 +173,57 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_info_a_code_name"
   {"代码": "000002", "名称": "万科A"},
   {"代码": "600000", "名称": "浦发银行"}
 ]
+```
+
+---
+
+## 数据接口 — V1 基金/ETF
+
+### 基金列表
+
+`GET /api/public/v1/fund_list`
+
+返回全部基金代码、简称与类型，数据由后台缓存（每日刷新），响应 <10ms。
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/fund_list"
+```
+
+### ETF 实时行情
+
+`GET /api/public/v1/fund_etf_spot`
+
+返回 ETF 实时行情，支持按代码筛选，数据由后台缓存（60s 刷新）。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 否 | 空（全市场） | ETF 代码筛选，如 `159915` |
+
+```sh
+# 全市场 ETF 行情
+curl "http://127.0.0.1:8080/api/public/v1/fund_etf_spot"
+
+# 筛选单只 ETF
+curl "http://127.0.0.1:8080/api/public/v1/fund_etf_spot?symbol=159915"
+```
+
+### ETF 历史行情
+
+`GET /api/public/v1/fund_etf_hist`
+
+支持切换数据源（eastmoney / sina），带自动重试。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | ETF 代码，如 `159915` 或 `sh510050` |
+| `source` | 否 | `eastmoney` | `eastmoney` / `sina` |
+| `start_date` | 否 | `19700101` | 开始日期 YYYYMMDD |
+| `end_date` | 否 | `20500101` | 结束日期 YYYYMMDD |
+| `adjust` | 否 | `""` | 复权类型 |
+
+```sh
+# ETF 历史数据（Sina 源）
+curl "http://127.0.0.1:8080/api/public/v1/fund_etf_hist?symbol=sh510050&source=sina"
 ```
 
 ### 默认数据源管理

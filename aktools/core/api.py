@@ -49,8 +49,20 @@ _SPOT_SOURCE_MAP = {
 }
 
 # 其他慢速无参接口（股票列表等），与实时行情共用缓存线程
+# ETF 实时行情数据源
+_FUND_SPOT_SOURCE_MAP = {
+    "eastmoney": ak.fund_etf_spot_em,
+}
+
+# ETF 历史行情数据源
+_FUND_ETF_HIST_SOURCE_MAP = {
+    "eastmoney": {"func": ak.fund_etf_hist_em, "prefixed": False},
+    "sina": {"func": ak.fund_etf_hist_sina, "prefixed": True},
+}
+
 _STATIC_CACHE_MAP = {
-    "stock_info": ak.stock_info_a_code_name,
+    "stock_list": ak.stock_info_a_code_name,
+    "fund_list": ak.fund_name_em,
 }
 
 # ── 缓存（后台线程定期刷新） ──────────────────────────────────
@@ -67,17 +79,29 @@ def _refresh_cache():
     _static_interval = max(1, _STATIC_CACHE_TTL // _CACHE_TTL)  # 每 N 个周期刷新一次静态数据
     while True:
         cycle += 1
-        # 刷新实时行情（每周期）
+        # 刷新实时行情（每周期）— A 股
         for source, func in _SPOT_SOURCE_MAP.items():
             try:
                 df = func()
                 if df is not None:
                     data = json.loads(df.to_json(orient="records", date_format="iso"))
                     with _spot_cache_lock:
-                        _spot_cache[source] = {"data": data, "ts": time.time()}
-                    logger.info(f"缓存已刷新: {source} ({len(data)} 条)")
+                        _spot_cache["stock_spot_" + source] = {"data": data, "ts": time.time()}
+                    logger.info(f"缓存已刷新: stock_spot_{source} ({len(data)} 条)")
             except Exception as e:
-                logger.warning(f"刷新缓存失败 [{source}]: {e}")
+                logger.warning(f"刷新缓存失败 [stock_spot_{source}]: {e}")
+        # 刷新实时行情（每周期）— ETF
+        for source, func in _FUND_SPOT_SOURCE_MAP.items():
+            try:
+                df = func()
+                if df is not None:
+                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    with _spot_cache_lock:
+                        _spot_cache["fund_etf_spot"] = {"data": data, "ts": time.time()}
+                    logger.info(f"缓存已刷新: fund_etf_spot ({len(data)} 条)")
+            except Exception as e:
+                logger.warning(f"刷新缓存失败 [fund_etf_spot]: {e}")
+
         # 静态数据仅在启动或每 _static_interval 个周期刷新
         if cycle == 1 or cycle % _static_interval == 0:
             for key, func in _STATIC_CACHE_MAP.items():
@@ -349,12 +373,14 @@ def stock_zh_a_spot_universal(
 
     # 缓存优先：先查请求源 → 再查其他源 → 最后才发起网络调用
     with _spot_cache_lock:
-        entry = _spot_cache.get(source)
+        cache_key = "stock_spot_" + source
+        entry = _spot_cache.get(cache_key)
         fallback_entry = None
         if entry is None:
             for s in _SPOT_SOURCE_MAP:
-                if s != source and s in _spot_cache:
-                    fallback_entry = _spot_cache[s]
+                alt_key = "stock_spot_" + s
+                if s != source and alt_key in _spot_cache:
+                    fallback_entry = _spot_cache[alt_key]
                     break
 
     if entry is not None:
@@ -420,19 +446,31 @@ def stock_zh_a_spot_universal(
 
 
 @app_core.get(
-    path="/public/v1/stock_info_a_code_name",
+    path="/public/v1/stock_list",
     description="A 股股票代码列表 (v1, 缓存)",
     summary="返回沪深京 A 股代码与名称，数据来自后台缓存，响应 <10ms",
 )
-def stock_info_a_code_name_cached(request: Request):
+def stock_list_cached(
+    request: Request,
+    page: int = Query(0, ge=0, description="页码，0=不分页"),
+    page_size: int = Query(100, ge=1, le=1000, description="每页条数（最大 1000）"),
+):
     with _spot_cache_lock:
-        entry = _spot_cache.get("stock_info")
+        entry = _spot_cache.get("stock_list")
 
     if entry is not None:
         data = entry["data"]
         age = int(time.time() - entry["ts"])
-        logger.info(f"股票列表缓存命中: age={age}s, count={len(data)}")
-        return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+        total = len(data)
+        if page > 0:
+            start = (page - 1) * page_size
+            data = data[start : start + page_size]
+        logger.info(f"股票列表缓存命中: age={age}s, page={page}, returned={len(data)}/{total}")
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=data,
+            headers={"X-Total-Count": str(total)},
+        )
 
     if not _spot_cache_warm.is_set():
         return JSONResponse(
@@ -441,22 +479,153 @@ def stock_info_a_code_name_cached(request: Request):
             headers={"Retry-After": "30"},
         )
 
-    # 缓存已预热但此 key 缺失（不应发生，但做兜底）
-    try:
-        df = _call_akshare_direct(ak.stock_info_a_code_name)
-        if df is None:
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={"error": "股票列表数据源不可用，请稍后重试"},
+    )
+
+
+@app_core.get(
+    path="/public/v1/fund_list",
+    description="基金代码列表 (v1, 缓存)",
+    summary="返回全部基金代码、简称与类型，数据来自后台缓存，响应 <10ms",
+)
+def fund_list_cached(
+    request: Request,
+    page: int = Query(0, ge=0, description="页码，0=不分页"),
+    page_size: int = Query(100, ge=1, le=1000, description="每页条数（最大 1000）"),
+):
+    with _spot_cache_lock:
+        entry = _spot_cache.get("fund_list")
+
+    if entry is not None:
+        data = entry["data"]
+        age = int(time.time() - entry["ts"])
+        total = len(data)
+        if page > 0:
+            start = (page - 1) * page_size
+            data = data[start : start + page_size]
+        logger.info(f"基金列表缓存命中: age={age}s, page={page}, returned={len(data)}/{total}")
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=data,
+            headers={"X-Total-Count": str(total)},
+        )
+
+    if not _spot_cache_warm.is_set():
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "缓存预热中，请稍后重试"},
+            headers={"Retry-After": "30"},
+        )
+
+    # 缓存已预热但此 key 缺失 — 后台刷新已失败，直接返回错误避免阻塞
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={"error": "基金列表数据源不可用，请稍后重试"},
+    )
+
+
+@app_core.get(
+    path="/public/v1/fund_etf_spot",
+    description="ETF 实时行情接口 (v1, 缓存)",
+    summary="返回 ETF 实时行情，数据来自后台缓存，响应 <10ms",
+)
+def fund_etf_spot_cached(
+    request: Request,
+    symbol: str = Query("", description="ETF 代码筛选，如 159915，留空返回全市场"),
+):
+    cache_key = "fund_etf_spot"
+    with _spot_cache_lock:
+        entry = _spot_cache.get(cache_key)
+
+    if entry is not None:
+        data = entry["data"]
+        age = int(time.time() - entry["ts"])
+        logger.info(f"ETF 行情缓存命中: age={age}s, count={len(data)}")
+    elif not _spot_cache_warm.is_set():
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "ETF 行情缓存预热中，请稍后重试"},
+            headers={"Retry-After": "30"},
+        )
+    else:
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": "ETF 行情数据源不可用，请稍后重试"},
+        )
+
+    # 按代码筛选
+    if symbol:
+        code = symbol.strip().lower()
+        data = [row for row in data if code in str(row.get("基金代码", row.get("代码", ""))).lower()]
+        if not data:
             return JSONResponse(
                 status_code=status.HTTP_404_NOT_FOUND,
-                content={"error": "该接口返回数据为空"},
+                content={"error": f"未找到 ETF 代码: {symbol}"},
             )
-        data = json.loads(df.to_json(orient="records", date_format="iso"))
-        return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+
+
+@app_core.get(
+    path="/public/v1/fund_etf_hist",
+    description="统一 ETF 历史行情接口 (v1)",
+    summary="支持切换数据源（eastmoney/sina），方便海外用户访问",
+)
+def fund_etf_hist_universal(
+    request: Request,
+    symbol: str = Query(..., description="ETF 代码，如 159915 或 sh510050"),
+    source: str = Query(
+        "", description=f"数据源，可选 eastmoney/sina，默认 {DEFAULT_SOURCE}"
+    ),
+    start_date: str = Query("19700101", description="开始日期 YYYYMMDD"),
+    end_date: str = Query("20500101", description="结束日期 YYYYMMDD"),
+    adjust: str = Query("", description="复权类型: 空=不复权, qfq=前复权, hfq=后复权"),
+):
+    source = source or DEFAULT_SOURCE
+    source_config = _FUND_ETF_HIST_SOURCE_MAP.get(source)
+    if source_config is None:
+        valid = ", ".join(_FUND_ETF_HIST_SOURCE_MAP)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": f"不支持的数据源: {source}，可选: {valid}"},
+        )
+
+    normalized = _normalize_symbol(symbol, source_config["prefixed"])
+    logger.info(f"ETF 历史: symbol={symbol} → {normalized}, source={source}")
+
+    try:
+        received_df = _call_akshare_direct(
+            source_config["func"],
+            symbol=normalized,
+            start_date=start_date,
+            end_date=end_date,
+            adjust=adjust,
+        )
+        if received_df is None:
+            logger.info("ETF 历史数据为空")
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "该接口返回数据为空，请确认参数是否正确"},
+            )
+        temp_df = received_df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        logger.error(f"ETF 历史 {source} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={
+                "error": f"{source} 数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次，请稍后重试或切换数据源"
+            },
+        )
     except Exception as e:
-        logger.error(f"股票列表直接调用失败: {e}")
+        logger.error(f"ETF 历史调用失败: {e}")
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={"error": f"数据接口调用异常: {e}"},
         )
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
 
 
 @app_core.get(
@@ -491,6 +660,42 @@ def default_source(
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={"default_source": DEFAULT_SOURCE, "available": list(_SOURCE_MAP)},
+    )
+
+
+@app_core.get(
+    path="/v1/cache_status",
+    description="缓存状态",
+    summary="返回所有缓存项的元信息（条数、最后更新时间）",
+)
+def cache_status(request: Request):
+    # Map cache keys to their refresh intervals
+    _intervals = {}
+    for s in _SPOT_SOURCE_MAP:
+        _intervals["stock_spot_" + s] = _CACHE_TTL
+    for s in _FUND_SPOT_SOURCE_MAP:
+        _intervals["fund_etf_spot"] = _CACHE_TTL
+    for k in _STATIC_CACHE_MAP:
+        _intervals[k] = _STATIC_CACHE_TTL
+
+    with _spot_cache_lock:
+        result = {}
+        now = time.time()
+        for key, entry in _spot_cache.items():
+            result[key] = {
+                "count": len(entry["data"]),
+                "updated_at": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime(entry["ts"])
+                ),
+                "age_seconds": int(now - entry["ts"]),
+                "refresh_interval_seconds": _intervals.get(key, _CACHE_TTL),
+            }
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "warm": _spot_cache_warm.is_set(),
+            "caches": result,
+        },
     )
 
 
