@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import urllib.parse
 from logging.handlers import TimedRotatingFileHandler
@@ -40,6 +41,66 @@ _SOURCE_MAP = {
     "sina": {"func": ak.stock_zh_a_daily, "prefixed": True},
     "tencent": {"func": ak.stock_zh_a_hist_tx, "prefixed": True},
 }
+
+# 实时行情数据源（函数无参数，返回全市场数据）
+_SPOT_SOURCE_MAP = {
+    "eastmoney": ak.stock_zh_a_spot_em,
+    "sina": ak.stock_zh_a_spot,
+}
+
+# 其他慢速无参接口（股票列表等），与实时行情共用缓存线程
+_STATIC_CACHE_MAP = {
+    "stock_info": ak.stock_info_a_code_name,
+}
+
+# ── 缓存（后台线程定期刷新） ──────────────────────────────────
+_CACHE_TTL = 60          # 实时行情刷新间隔（秒）
+_STATIC_CACHE_TTL = 86400  # 静态数据刷新间隔（秒，默认 1 天）
+_spot_cache = {}  # {key: {"data": [...], "ts": float}}
+_spot_cache_lock = threading.Lock()
+_spot_cache_warm = threading.Event()  # 首次刷新完成后置位
+
+
+def _refresh_cache():
+    """Daemon thread: periodically refresh cached data."""
+    cycle = 0
+    _static_interval = max(1, _STATIC_CACHE_TTL // _CACHE_TTL)  # 每 N 个周期刷新一次静态数据
+    while True:
+        cycle += 1
+        # 刷新实时行情（每周期）
+        for source, func in _SPOT_SOURCE_MAP.items():
+            try:
+                df = func()
+                if df is not None:
+                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    with _spot_cache_lock:
+                        _spot_cache[source] = {"data": data, "ts": time.time()}
+                    logger.info(f"缓存已刷新: {source} ({len(data)} 条)")
+            except Exception as e:
+                logger.warning(f"刷新缓存失败 [{source}]: {e}")
+        # 静态数据仅在启动或每 _static_interval 个周期刷新
+        if cycle == 1 or cycle % _static_interval == 0:
+            for key, func in _STATIC_CACHE_MAP.items():
+                try:
+                    df = func()
+                    if df is not None:
+                        data = json.loads(df.to_json(orient="records", date_format="iso"))
+                        # 清理名称中的空白字符（如 "柳    工" → "柳工"）
+                        for row in data:
+                            if "name" in row and isinstance(row["name"], str):
+                                row["name"] = "".join(row["name"].split())
+                        with _spot_cache_lock:
+                            _spot_cache[key] = {"data": data, "ts": time.time()}
+                        logger.info(f"缓存已刷新: {key} ({len(data)} 条)")
+                except Exception as e:
+                    logger.warning(f"刷新缓存失败 [{key}]: {e}")
+        if cycle == 1:
+            _spot_cache_warm.set()
+        time.sleep(_CACHE_TTL)
+
+
+_refresh_thread = threading.Thread(target=_refresh_cache, daemon=True)
+_refresh_thread.start()
 
 
 def _normalize_symbol(symbol: str, prefixed: bool) -> str:
@@ -264,6 +325,138 @@ def stock_zh_a_hist_universal(
         )
 
     return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/public/v1/stock_zh_a_spot",
+    description="统一 A 股实时行情接口 (v1)",
+    summary="支持切换数据源（eastmoney/sina），可筛选个股",
+)
+def stock_zh_a_spot_universal(
+    request: Request,
+    source: str = Query(
+        "", description=f"数据源，可选 eastmoney/sina，默认 {DEFAULT_SOURCE}"
+    ),
+    symbol: str = Query("", description="股票代码筛选，如 600000 或 sh600000，留空返回全市场"),
+):
+    source = source or DEFAULT_SOURCE
+    if source not in _SPOT_SOURCE_MAP:
+        valid = ", ".join(_SPOT_SOURCE_MAP)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": f"不支持的数据源: {source}，可选: {valid}"},
+        )
+
+    # 缓存优先：先查请求源 → 再查其他源 → 最后才发起网络调用
+    with _spot_cache_lock:
+        entry = _spot_cache.get(source)
+        fallback_entry = None
+        if entry is None:
+            for s in _SPOT_SOURCE_MAP:
+                if s != source and s in _spot_cache:
+                    fallback_entry = _spot_cache[s]
+                    break
+
+    if entry is not None:
+        data = entry["data"]
+        logger.info(
+            f"实时行情缓存命中: source={source}, "
+            f"age={int(time.time() - entry['ts'])}s"
+        )
+    elif fallback_entry is not None:
+        data = fallback_entry["data"]
+        source = next(s for s, e in _spot_cache.items() if e is fallback_entry)
+        logger.info(
+            f"实时行情回退到备用缓存: {source}, "
+            f"age={int(time.time() - fallback_entry['ts'])}s"
+        )
+    else:
+        # 缓存正在预热中，快速返回 503 而非阻塞 30s
+        if not _spot_cache_warm.is_set():
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "error": "实时行情缓存预热中，请 30 秒后重试"
+                },
+                headers={"Retry-After": "30"},
+            )
+
+        logger.info(f"所有缓存未命中，直接调用 {source}")
+        func = _SPOT_SOURCE_MAP[source]
+        try:
+            df = _call_akshare_direct(func)
+            if df is None:
+                return JSONResponse(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    content={"error": "该接口返回数据为空"},
+                )
+            data = json.loads(df.to_json(orient="records", date_format="iso"))
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            logger.error(f"实时行情 {source} 直接调用失败: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={
+                    "error": f"{source} 数据源不可用且无可回退缓存，请稍后重试"
+                },
+            )
+        except Exception as e:
+            logger.error(f"实时行情直接调用异常: {e}")
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={"error": f"数据接口调用异常: {e}"},
+            )
+
+    # 按个股代码筛选
+    if symbol:
+        code = _normalize_symbol(symbol, prefixed=False)
+        data = [row for row in data if code in str(row.get("代码", "")).lower()]
+        if not data:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": f"未找到股票代码: {symbol}"},
+            )
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+
+
+@app_core.get(
+    path="/public/v1/stock_info_a_code_name",
+    description="A 股股票代码列表 (v1, 缓存)",
+    summary="返回沪深京 A 股代码与名称，数据来自后台缓存，响应 <10ms",
+)
+def stock_info_a_code_name_cached(request: Request):
+    with _spot_cache_lock:
+        entry = _spot_cache.get("stock_info")
+
+    if entry is not None:
+        data = entry["data"]
+        age = int(time.time() - entry["ts"])
+        logger.info(f"股票列表缓存命中: age={age}s, count={len(data)}")
+        return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+
+    if not _spot_cache_warm.is_set():
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "缓存预热中，请稍后重试"},
+            headers={"Retry-After": "30"},
+        )
+
+    # 缓存已预热但此 key 缺失（不应发生，但做兜底）
+    try:
+        df = _call_akshare_direct(ak.stock_info_a_code_name)
+        if df is None:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "该接口返回数据为空"},
+            )
+        data = json.loads(df.to_json(orient="records", date_format="iso"))
+        return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+    except Exception as e:
+        logger.error(f"股票列表直接调用失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"数据接口调用异常: {e}"},
+        )
 
 
 @app_core.get(

@@ -67,6 +67,45 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=600000&source=t
 
 ---
 
+## 统一 A 股实时行情接口
+
+`GET /api/public/v1/stock_zh_a_spot`
+
+单个接口覆盖两个数据源，返回全市场实时行情，可按个股代码筛选。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `source` | 否 | `eastmoney` | `eastmoney` / `sina`（不支持 `tencent`） |
+| `symbol` | 否 | 空（全市场） | 股票代码筛选，如 `600000` |
+
+### 示例
+
+```sh
+# 全市场实时行情（从内存缓存返回，毫秒级响应）
+curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?source=sina"
+
+# 筛选单只股票
+curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000&source=eastmoney"
+```
+
+!!! tip "缓存"
+    实时行情数据由后台线程每 60 秒自动刷新。请求直接从内存读取，
+    首次请求若缓存未就绪则回退为直接调用。缓存预热完成后响应时间 <10ms。
+
+---
+
+## A 股股票列表接口
+
+`GET /api/public/v1/stock_info_a_code_name`
+
+返回沪深京全部 A 股代码与名称列表，数据由后台缓存（每 60 秒刷新），响应 <10ms。
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/stock_info_a_code_name"
+```
+
+---
+
 ## 默认数据源管理
 
 `GET /api/v1/default_source` — 查看当前默认数据源

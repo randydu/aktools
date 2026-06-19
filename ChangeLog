@@ -1,6 +1,24 @@
 # ChangeLog
 
-## 0.0.93 (unreleased)
+## Unreleased
+
+### Added
+
+- Unified A-share spot API (v1) with source switching — `GET /api/public/v1/stock_zh_a_spot`
+- In-memory spot cache with background refresh (60s TTL) — responses <10ms after warmup
+- Cache fallback — automatically serves from any available source when the requested one is cold
+- Warmup gate — returns 503 + `Retry-After` during initial cache population instead of blocking
+
+- Cached A-stock list API — `GET /api/public/v1/stock_info_a_code_name` (daily refresh, <10ms)
+- Static cache data refreshes at independent interval (1 day vs 60s for spot)
+
+### Fixed
+
+- Spot cache fallback now checks all sources before attempting slow direct call
+- Fallback snapshot recomputed after retry loop to catch late-arriving cache entries
+- Stock name whitespace stripped during cache refresh (e.g. "柳    工" → "柳工")
+
+## 0.0.93
 
 ### Added
 

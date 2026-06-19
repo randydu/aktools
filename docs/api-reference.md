@@ -131,6 +131,50 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=600000&source=s
 curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_hist?symbol=000001&source=tencent&start_date=20240101&end_date=20241231&adjust=qfq"
 ```
 
+### 统一 A 股实时行情
+
+`GET /api/public/v1/stock_zh_a_spot`
+
+返回全市场实时行情，支持按个股代码筛选。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `source` | 否 | `eastmoney` | 数据源：`eastmoney` / `sina` |
+| `symbol` | 否 | 空（全市场） | 股票代码筛选，如 `600000` 或 `sh600000` |
+
+```sh
+# 全市场实时行情（Sina 源）
+curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?source=sina"
+
+# 筛选单只股票
+curl "http://127.0.0.1:8080/api/public/v1/stock_zh_a_spot?symbol=600000"
+```
+
+!!! note
+    `tencent` 不适用于实时行情接口，当前仅支持 `eastmoney` 和 `sina`。
+    若默认源设为 `tencent`，实时行情接口需显式传 `?source=sina` 或 `?source=eastmoney`。
+    实时行情数据由后台线程缓存（每 60 秒刷新），请求直接从内存返回，响应时间 <10ms。
+
+### A 股股票列表
+
+`GET /api/public/v1/stock_info_a_code_name`
+
+返回沪深京全部 A 股代码与名称，数据由后台缓存，响应 <10ms。
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/stock_info_a_code_name"
+```
+
+响应示例：
+
+```json
+[
+  {"代码": "000001", "名称": "平安银行"},
+  {"代码": "000002", "名称": "万科A"},
+  {"代码": "600000", "名称": "浦发银行"}
+]
+```
+
 ### 默认数据源管理
 
 `GET /api/v1/default_source` — 查看当前默认源
