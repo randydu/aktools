@@ -162,6 +162,10 @@ def _persist_cache_to_db():
 
 def _load_cache_from_db():
     """Restore cache from SQLite on startup."""
+    _log = logging.getLogger("AKToolsLog")
+    if not os.path.exists(_CACHE_DB):
+        _log.info(f"cache.db 不存在 ({_CACHE_DB})，跳过恢复")
+        return False
     try:
         conn = _sqlite3.connect(_CACHE_DB)
         conn.execute(
@@ -171,14 +175,24 @@ def _load_cache_from_db():
         rows = conn.execute("SELECT key, data, ts FROM persisted_cache").fetchall()
         conn.close()
         if rows:
+            # 迁移旧 cache key → 新命名（stock_list → stock_cn_list 等）
+            _key_map = {
+                "stock_list": "stock_cn_list",
+                "stock_spot_eastmoney": "stock_cn_spot_eastmoney",
+                "stock_spot_sina": "stock_cn_spot_sina",
+            }
             with _spot_cache_lock:
                 for key, data_json, ts in rows:
-                    _spot_cache[key] = {"data": json.loads(data_json), "ts": ts}
-            logger.info(f"从 cache.db 恢复了 {len(rows)} 个缓存项")
+                    target_key = _key_map.get(key, key)
+                    _spot_cache[target_key] = {"data": json.loads(data_json), "ts": ts}
+            _log.info(f"从 cache.db 恢复了 {len(rows)} 个缓存项")
             return True
-    except Exception:
-        pass
-    return False
+        else:
+            _log.info("cache.db 存在但无缓存项")
+            return False
+    except Exception as e:
+        _log.warning(f"从 cache.db 恢复失败: {e}")
+        return False
 
 # A 股交易时段 (北京时间)
 _MARKET_SESSIONS = [
@@ -295,7 +309,7 @@ def _refresh_cache():
 _restored = _load_cache_from_db()
 if _restored:
     _spot_cache_warm.set()  # 恢复后可立即服务
-    logger.info("缓存已从磁盘恢复，预热完成")
+    logging.getLogger("AKToolsLog").info("缓存已从磁盘恢复，预热完成")
 
 _refresh_thread = threading.Thread(target=_refresh_cache, daemon=True)
 _refresh_thread.start()
