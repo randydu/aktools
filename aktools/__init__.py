@@ -96,8 +96,9 @@ Changelog
 0.0.91: fix: fix update python 3.14
 0.0.92: add: v1 API with multi-source switching, retry, proxy, and docs
 0.0.93: add: Docker compose, build script, and deployment guide
+0.0.94: add: cached spot API and stock list API with independent refresh intervals
 """
 
 __title__ = "AKTools"
-__version__ = "0.0.93"
+__version__ = "0.0.94"
 __author__ = "AKFamily"
