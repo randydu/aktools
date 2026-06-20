@@ -1,5 +1,17 @@
 # ChangeLog
 
+## 0.1.3
+
+### Added
+
+- `stock_cn_hist_intraday` — minute-level history with sina/eastmoney sources, auto-fallback for historical dates
+- `stock_profile` endpoint restored — returns stock industry + concept membership from cached data
+
+### Fixed
+
+- Sina intraday silently ignored date range; now auto-falls back to eastmoney for historical queries
+- `stock_profile` endpoint lost during earlier checkout; re-added
+
 ## 0.1.2
 
 ### Fixed

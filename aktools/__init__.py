@@ -103,8 +103,9 @@ Changelog
 0.1.0: first stable release of universal v1 API layer
 0.1.1: fix logger NameError at startup + cache key migration
 0.1.2: fix Dockerfile local source build + .dockerignore
+0.1.3: add intraday API + restore stock_profile
 """
 
 __title__ = "AKTools"
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __author__ = "AKFamily"
