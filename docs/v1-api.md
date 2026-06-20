@@ -116,6 +116,31 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_cn_list"
 
 ---
 
+## A 股分时行情
+
+`GET /api/public/v1/stock_cn_hist_intraday`
+
+分钟级 K 线，双数据源（sina / eastmoney），Sina 请求历史日期时自动回退到 eastmoney。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | 股票代码，如 `000001` 或 `sh600519` |
+| `source` | 否 | `eastmoney` | `eastmoney` / `sina` |
+| `period` | 否 | `5` | 1 / 5 / 15 / 30 / 60 |
+| `start_date` | 否 | — | 开始时间（仅 eastmoney） |
+| `end_date` | 否 | — | 结束时间（仅 eastmoney） |
+| `adjust` | 否 | `""` | 复权 |
+
+```sh
+# Sina 源（当日数据）
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist_intraday?symbol=sh600519&source=sina&period=1"
+
+# East Money 源（历史范围）
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist_intraday?symbol=000001&period=5&start_date=2024-06-01 09:30:00"
+```
+
+---
+
 ## LOF 接口
 
 ### LOF 实时行情
