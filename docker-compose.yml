@@ -4,13 +4,14 @@ services:
     image: aktools:latest
     container_name: aktools
     ports:
-      - "8080:8080"
+      - "8080:8080"   # API
+      - "8081:8081"   # Docs
     environment:
       # ---- 数据源 ----
       # 海外用户推荐设为中国代理地址，如 http://host.docker.internal:7890
       AKSHARE_PROXY: ""
       # 默认数据源: eastmoney / sina / tencent（海外用户推荐 sina 或 tencent）
-      AKSHARE_DEFAULT_SOURCE: "eastmoney"
+      AKSHARE_DEFAULT_SOURCE: "sina"
       # ---- 日志 ----
       # 日志级别: DEBUG / INFO / WARNING / ERROR
       AKTOOLS_LOG_LEVEL: INFO
@@ -21,7 +22,7 @@ services:
       # 预配置 Token 的 JSON 文件路径（可选，文件权限应设为 600）
       # AKTOOLS_TOKENS_FILE: /run/secrets/aktools_tokens
     volumes:
-      - aktools_data:/data/aktools
+      - ./data:/data/aktools
     restart: unless-stopped
 
 volumes:
