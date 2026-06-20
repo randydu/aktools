@@ -614,6 +614,31 @@ def stock_cn_hist_intraday(
 
 
 @app_core.get(
+    path="/public/v1/stock_profile",
+    description="个股行业/概念归属 (v1, 缓存)",
+    summary="返回指定股票的行业与概念板块，数据来自后台缓存（每日刷新）",
+)
+def stock_profile(
+    symbol: str = Query(..., description="股票代码，如 600000"),
+):
+    with _spot_cache_lock:
+        entry = _spot_cache.get("stock_profile")
+    if entry is None:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "板块数据缓存未就绪，请稍后重试"},
+        )
+    code = symbol.strip()
+    for row in entry["data"]:
+        if row.get("code") == code:
+            return JSONResponse(status_code=status.HTTP_200_OK, content=row)
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"error": f"未找到股票代码: {symbol}"},
+    )
+
+
+@app_core.get(
     path="/public/v1/stock_cn_spot",
     description="A 股实时行情接口 (v1)",
     summary="支持切换数据源（eastmoney/sina），可筛选个股",
