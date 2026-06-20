@@ -42,6 +42,7 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). Restored
 | `/api/public/v1/stock_cn_list` | GET | Daily, paginated | `page`(0=all), `page_size`(100) |
 | `/api/public/v1/stock_cn_spot` | GET | 60s, fallback | `source`(eastmoney/sina), `symbol`(optional filter) |
 | `/api/public/v1/stock_cn_hist` | GET | On-demand | `symbol`(req), `source`, `start_date`, `end_date`, `adjust` |
+| `/api/public/v1/stock_cn_hist_intraday` | GET | On-demand | `symbol`(req), `source`(eastmoney/sina), `period`(1/5/15/30/60), `start_date`, `end_date`, `adjust` |
 | `/api/public/v1/stock_cn_search` | GET | Cached | `q`(req), `limit`(20, 0=all) |
 | `/api/public/v1/stock_profile` | GET | Daily | `symbol`(req) → `{code, industry, concepts}` |
 

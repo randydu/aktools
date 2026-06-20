@@ -41,6 +41,11 @@ os.makedirs(_DATA_DIR, exist_ok=True)
 
 DEFAULT_SOURCE = os.getenv("AKSHARE_DEFAULT_SOURCE", "eastmoney")  # mutable — changed by /api/v1/default_source
 
+_INTRADAY_SOURCE_MAP = {
+    "eastmoney": {"func": ak.stock_zh_a_hist_min_em, "prefixed": False},
+    "sina": {"func": ak.stock_zh_a_minute, "prefixed": True},
+}
+
 _SOURCE_MAP = {
     "eastmoney": {"func": ak.stock_zh_a_hist, "prefixed": False},
     "sina": {"func": ak.stock_zh_a_daily, "prefixed": True},
@@ -532,6 +537,63 @@ def stock_cn_hist(
         )
     except Exception as e:
         logger.error(f"统一接口调用失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"数据接口调用异常: {e}"},
+        )
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/public/v1/stock_cn_hist_intraday",
+    description="A 股分时行情接口 (v1)",
+    summary="支持切换数据源（eastmoney/sina），返回分钟级 K 线",
+)
+def stock_cn_hist_intraday(
+    request: Request,
+    symbol: str = Query(..., description="股票代码，如 000001 或 sh600519"),
+    source: str = Query(
+        "", description="数据源：eastmoney（默认）/ sina"
+    ),
+    period: str = Query("5", description="分时周期: 1, 5, 15, 30, 60"),
+    start_date: str = Query("1979-09-01 09:32:00", description="开始时间 YYYY-MM-DD HH:MM:SS"),
+    end_date: str = Query("2222-01-01 09:32:00", description="结束时间"),
+    adjust: str = Query("", description="复权: 空=不复权, qfq=前复权, hfq=后复权"),
+):
+    source = source or DEFAULT_SOURCE
+    source_config = _INTRADAY_SOURCE_MAP.get(source)
+    if source_config is None:
+        valid = ", ".join(_INTRADAY_SOURCE_MAP)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": f"不支持的数据源: {source}，可选: {valid}"},
+        )
+
+    normalized = _normalize_symbol(symbol, source_config["prefixed"])
+    logger.info(f"分时行情: symbol={symbol} → {normalized}, source={source}, period={period}")
+
+    kwargs = {"symbol": normalized, "period": period, "adjust": adjust}
+    if source == "eastmoney":
+        kwargs["start_date"] = start_date
+        kwargs["end_date"] = end_date
+
+    try:
+        received_df = _call_akshare_direct(source_config["func"], **kwargs)
+        if received_df is None:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "该接口返回数据为空"},
+            )
+        temp_df = received_df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        logger.error(f"分时 {source} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"{source} 数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
+        )
+    except Exception as e:
+        logger.error(f"分时调用失败: {e}")
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={"error": f"数据接口调用异常: {e}"},

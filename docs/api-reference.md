@@ -331,6 +331,26 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist?symbol=600000&source=sin
 curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist?symbol=000001&source=tencent&start_date=20240101&end_date=20241231&adjust=qfq"
 ```
 
+### A 股分时行情
+
+`GET /api/public/v1/stock_cn_hist_intraday`
+
+分钟级 K 线，支持双数据源。
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | 股票代码，如 `000001` 或 `sh600519` |
+| `source` | 否 | `eastmoney` | `eastmoney` / `sina`（海外推荐 sina） |
+| `period` | 否 | `5` | 分时周期: 1, 5, 15, 30, 60 |
+| `start_date` | 否 | `1979-09-01 09:32:00` | 开始时间（仅 eastmoney） |
+| `end_date` | 否 | `2222-01-01 09:32:00` | 结束时间（仅 eastmoney） |
+| `adjust` | 否 | `""` | 复权类型 |
+
+```sh
+# Sina 源（海外推荐）
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist_intraday?symbol=sh600519&source=sina&period=1"
+```
+
 ### 统一 A 股实时行情
 
 `GET /api/public/v1/stock_cn_spot`
