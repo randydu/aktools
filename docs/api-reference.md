@@ -355,8 +355,8 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist_intraday?symbol=000001&p
 ```
 
 !!! note "Sina 源限制"
-    `source=sina` 仅返回最近一个交易日的数据，不支持 `start_date` / `end_date` 参数。
-    需要历史分时数据请使用 `source=eastmoney`。
+    `source=sina` 仅返回最近一个交易日的数据。若请求的 `start_date` 不是今天，
+    接口自动回退到 `eastmoney` 源，无需手动切换。
 
 ### 统一 A 股实时行情
 

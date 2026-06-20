@@ -570,6 +570,17 @@ def stock_cn_hist_intraday(
             content={"error": f"不支持的数据源: {source}，可选: {valid}"},
         )
 
+    # Sina 仅支持当日数据；若请求历史范围，自动回退到 eastmoney
+    if source == "sina":
+        today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+        requested_day = start_date[:10] if start_date else ""
+        if requested_day and requested_day != today:
+            logger.info(
+                f"分时行情: Sina 不支持历史日期 ({requested_day})，回退到 eastmoney"
+            )
+            source = "eastmoney"
+            source_config = _INTRADAY_SOURCE_MAP["eastmoney"]
+
     normalized = _normalize_symbol(symbol, source_config["prefixed"])
     logger.info(f"分时行情: symbol={symbol} → {normalized}, source={source}, period={period}")
 
