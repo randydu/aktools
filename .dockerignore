@@ -15,8 +15,7 @@ data/
 *.db
 *.log
 
-# MkDocs outputs
-site/
+# MkDocs outputs (pre-built by docker-build.sh, copied separately)
 
 # IDE
 .idea/
@@ -30,7 +29,8 @@ var/
 
 # Docker
 Dockerfile
-docker-*
+docker-build.sh
+docker-compose.yml
 .env
 
 # OS
