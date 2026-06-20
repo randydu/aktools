@@ -347,9 +347,16 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist?symbol=000001&source=ten
 | `adjust` | 否 | `""` | 复权类型 |
 
 ```sh
-# Sina 源（海外推荐）
+# Sina 源（海外推荐，仅返回最近交易日数据）
 curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist_intraday?symbol=sh600519&source=sina&period=1"
+
+# East Money 源（支持日期范围）
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_hist_intraday?symbol=000001&period=5&start_date=2024-06-01 09:30:00"
 ```
+
+!!! note "Sina 源限制"
+    `source=sina` 仅返回最近一个交易日的数据，不支持 `start_date` / `end_date` 参数。
+    需要历史分时数据请使用 `source=eastmoney`。
 
 ### 统一 A 股实时行情
 
