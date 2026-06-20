@@ -1,0 +1,37 @@
+# Git
+.git/
+.gitignore
+
+# Python
+*.pyc
+__pycache__/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Data (generated at runtime)
+data/
+*.db
+*.log
+
+# MkDocs outputs
+site/
+
+# IDE
+.idea/
+.vscode/
+.reasonix/
+
+# Scratch
+var/
+/windows/
+/codestyles/
+
+# Docker
+Dockerfile
+docker-*
+.env
+
+# OS
+.DS_Store
