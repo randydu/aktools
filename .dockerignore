@@ -15,7 +15,7 @@ data/
 *.db
 *.log
 
-# MkDocs outputs (pre-built by docker-build.sh, copied separately)
+# MkDocs outputs
 
 # IDE
 .idea/

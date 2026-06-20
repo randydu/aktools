@@ -11,4 +11,4 @@ cd /app/src
 gunicorn --bind 0.0.0.0:8080 aktools.main:app -k uvicorn.workers.UvicornWorker &
 
 # Serve pre-built docs (foreground — keeps container alive)
-python -m http.server 8081 --directory /app/site
+python -m http.server 8081 --directory /app/src/site

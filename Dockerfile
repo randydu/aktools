@@ -8,11 +8,8 @@ RUN pip install --upgrade pip
 RUN pip install --no-cache-dir akshare fastapi uvicorn gunicorn \
     -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host=mirrors.aliyun.com --upgrade
 
-# 复制项目源码
+# 复制项目源码（含预构建的 site/ 目录）
 COPY . /app/src/
-
-# 复制预构建的文档站点（由 docker-build.sh 生成）
-COPY site/ /app/site/
 
 # 入口脚本
 COPY docker-entrypoint.sh /app/

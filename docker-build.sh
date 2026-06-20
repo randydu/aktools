@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the AKTools Docker image (with pre-built docs)
+# Build the AKTools Docker image (pre-build docs first)
 set -euo pipefail
 
 IMAGE_NAME="${IMAGE_NAME:-aktools}"
