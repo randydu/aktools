@@ -35,3 +35,6 @@ site/
 
 # Reasonix
 .reasonix/
+
+.python-version
+_patch_cache.py

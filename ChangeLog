@@ -1,5 +1,14 @@
 # ChangeLog
 
+## 0.1.2
+
+### Fixed
+
+- Dockerfile now builds from local source instead of pulling `aktools` from PyPI
+- Docs site (`site/`) served at port 8081 alongside API on 8080
+- Added `.dockerignore` to exclude build artifacts from image
+- Fixed `COPY site/` / `docker-entrypoint.sh` exclusion by `.dockerignore`
+
 ## 0.1.1
 
 ### Fixed
