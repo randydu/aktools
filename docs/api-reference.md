@@ -209,10 +209,6 @@ curl "http://127.0.0.1:8080/api/public/stock_hk_daily?symbol=00700&start_date=20
 | `page` | 否 | `0`（不分页） | 页码，1-based |
 | `page_size` | 否 | `100` | 每页条数，最大 1000 |
 
-### 港股搜索
-
-`GET /api/public/v1/stock_hk_search?q=00700`
-
 ### 港股实时行情
 
 `GET /api/public/v1/stock_hk_spot`
@@ -254,12 +250,6 @@ curl "http://127.0.0.1:8080/api/public/stock_hk_daily?symbol=00700&start_date=20
 ```sh
 curl "http://127.0.0.1:8080/api/public/v1/stock_us_list?page=1&page_size=50"
 ```
-
-### 美股搜索
-
-`GET /api/public/v1/stock_us_search?q=AAPL`
-
-基于缓存列表搜索美股代码或名称（子串匹配，大小写不敏感）。
 
 ### 美股实时行情
 
@@ -506,13 +496,23 @@ curl "http://127.0.0.1:8080/api/public/v1/fund_etf_hist?symbol=sh510050&source=s
 
 ### 搜索接口
 
-`GET /api/public/v1/stock_cn_search` — 股票代码/名称模糊搜索
+### 搜索接口
 
-`GET /api/public/v1/fund_search` — 基金代码/名称模糊搜索
+所有搜索基于缓存列表，子串匹配代码或名称（大小写不敏感），响应 <10ms，含 `X-Total-Count` 头部。
+
+| 端点 | 搜索范围 |
+| ----- | ----- |
+| `/api/public/v1/stock_cn_search` | A 股代码/名称 |
+| `/api/public/v1/stock_us_search` | 美股代码/名称 |
+| `/api/public/v1/stock_hk_search` | 港股代码/名称 |
+| `/api/public/v1/fund_search` | 基金代码/简称 |
+| `/api/public/v1/fund_open_search` | 场外基金代码/简称 |
+| `/api/public/v1/bond_cov_search` | 可转债代码/简称 |
+| `/api/public/v1/index_search` | 全球指数名称/代码 |
 
 | 参数 | 必填 | 默认值 | 说明 |
 | ----- | :---: | ----- | ----- |
-| `q` | 是 | — | 搜索关键词，子串匹配代码或名称 |
+| `q` | 是 | — | 搜索关键词，子串匹配 |
 | `limit` | 否 | `20` | 最大返回条数，`0`=不限制 |
 
 ```sh
@@ -521,9 +521,10 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_cn_search?q=浦发&limit=5"
 
 # 搜索基金
 curl "http://127.0.0.1:8080/api/public/v1/fund_search?q=华夏&limit=0"
-```
 
-响应包含 `X-Total-Count` 头部，数据来自缓存，<10ms。
+# 搜索指数
+curl "http://127.0.0.1:8080/api/public/v1/index_search?q=恒生"
+```
 
 ### 缓存控制
 
