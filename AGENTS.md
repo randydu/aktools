@@ -71,6 +71,8 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). Restored
 | `/api/public/v1/fund_list` | GET | Daily, paginated | `page`, `page_size` |
 | `/api/public/v1/fund_etf_spot` | GET | 60s | `symbol`(optional filter) |
 | `/api/public/v1/fund_etf_hist` | GET | On-demand | `symbol`(req), `source`(eastmoney/sina), `start_date`, `end_date`, `adjust` |
+| `/api/public/v1/fund_etf_hist_intraday` | GET | On-demand | `symbol`(req), `period`(1/5/15/30/60), `start_date`, `end_date`, `adjust` |
+| `/api/public/v1/fund_lof_hist_intraday` | GET | On-demand | `symbol`(req), `period`(1/5/15/30/60), `start_date`, `end_date`, `adjust` |
 | `/api/public/v1/fund_lof_spot` | GET | 60s | `symbol`(optional filter) |
 | `/api/public/v1/fund_lof_hist` | GET | On-demand | `symbol`(req), `period`, `start_date`, `end_date`, `adjust` |
 | `/api/public/v1/fund_open_list` | GET | Daily, paginated | `page`, `page_size` |

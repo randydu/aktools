@@ -898,6 +898,63 @@ def fund_list_cached(
     )
 
 
+
+@app_core.get(
+    path="/public/v1/fund_etf_hist_intraday",
+    description="ETF 分时行情 (v1)",
+    summary="返回 ETF 分钟级 K 线（东方财富源）",
+)
+def fund_etf_hist_intraday(
+    symbol: str = Query(..., description="ETF 代码，如 159707"),
+    period: str = Query("5", description="分时周期: 1, 5, 15, 30, 60"),
+    start_date: str = Query("1979-09-01 09:32:00"),
+    end_date: str = Query("2222-01-01 09:32:00"),
+    adjust: str = Query(""),
+):
+    try:
+        df = _call_akshare_direct(
+            ak.fund_etf_hist_min_em,
+            symbol=symbol, period=period, start_date=start_date,
+            end_date=end_date, adjust=adjust,
+        )
+        if df is None:
+            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
+        temp_df = df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
+    except Exception as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/public/v1/fund_lof_hist_intraday",
+    description="LOF 分时行情 (v1)",
+    summary="返回 LOF 分钟级 K 线（东方财富源）",
+)
+def fund_lof_hist_intraday(
+    symbol: str = Query(..., description="LOF 代码，如 166009"),
+    period: str = Query("5", description="分时周期: 1, 5, 15, 30, 60"),
+    start_date: str = Query("1979-09-01 09:32:00"),
+    end_date: str = Query("2222-01-01 09:32:00"),
+    adjust: str = Query(""),
+):
+    try:
+        df = _call_akshare_direct(
+            ak.fund_lof_hist_min_em,
+            symbol=symbol, period=period, start_date=start_date,
+            end_date=end_date, adjust=adjust,
+        )
+        if df is None:
+            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
+        temp_df = df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
+    except Exception as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
 @app_core.get(
     path="/public/v1/fund_etf_spot",
     description="ETF 实时行情接口 (v1, 缓存)",
