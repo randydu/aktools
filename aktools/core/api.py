@@ -81,11 +81,38 @@ _US_HIST_SOURCE_MAP = {
     "sina": {"func": ak.stock_us_daily, "prefixed": False},
 }
 
+# HK 股票数据源
+_HK_SPOT_SOURCE_MAP = {
+    "eastmoney": ak.stock_hk_spot_em,
+    "sina": ak.stock_hk_spot,
+}
+_HK_HIST_SOURCE_MAP = {
+    "eastmoney": {"func": ak.stock_hk_hist, "prefixed": False},
+    "sina": {"func": ak.stock_hk_daily, "prefixed": False},
+}
+
+# 期货数据源
+_FUTURES_SPOT_SOURCE_MAP = {"eastmoney": ak.futures_global_spot_em}
+
+# 指数数据源
+_INDEX_SPOT_SOURCE_MAP = {"eastmoney": ak.index_global_spot_em}
+_INDEX_HIST_SOURCE_MAP = {
+    "eastmoney": {"func": ak.index_global_hist_em, "prefixed": False},
+    "sina": {"func": ak.index_global_hist_sina, "prefixed": False},
+}
+
+# 可转债数据源
+_BOND_COV_SPOT_SOURCE_MAP = {"sina": ak.bond_zh_hs_cov_spot}
+_BOND_COV_HIST_SOURCE_MAP = {"sina": {"func": ak.bond_zh_hs_cov_daily, "prefixed": False}}
+
 _STATIC_CACHE_MAP = {
     "stock_cn_list": ak.stock_info_a_code_name,
     "fund_list": ak.fund_name_em,
     "fund_open_list": ak.fund_open_fund_daily_em,
     "stock_us_list": ak.get_us_stock_name,
+    "stock_hk_list": ak.stock_hk_ggt_components_em,
+    "index_list": ak.index_global_name_table,
+    "bond_cov_list": ak.bond_zh_cov,
     "board_industry_list": ak.stock_board_industry_name_em,
     "board_concept_list": ak.stock_board_concept_name_em,
     "stock_profile": None,  # built from constituent data below
@@ -275,6 +302,56 @@ def _refresh_cache():
                     succeeded += 1
             except Exception as e:
                 logger.warning(f"刷新缓存失败 [stock_us_spot]: {e}")
+                failed += 1
+        # 刷新实时行情（每周期）— HK
+        for source, func in _HK_SPOT_SOURCE_MAP.items():
+            try:
+                df = func()
+                if df is not None:
+                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    with _spot_cache_lock:
+                        _spot_cache["stock_hk_spot_" + source] = {"data": data, "ts": time.time()}
+                    logger.info(f"缓存已刷新: stock_hk_spot_{source} ({len(data)} 条)")
+                    succeeded += 1
+            except Exception as e:
+                logger.warning(f"刷新缓存失败 [stock_hk_spot_{source}]: {e}")
+                failed += 1
+        # 刷新实时行情（每周期）— 期货 / 指数 / 可转债
+        for source, func in _FUTURES_SPOT_SOURCE_MAP.items():
+            try:
+                df = func()
+                if df is not None:
+                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    with _spot_cache_lock:
+                        _spot_cache["futures_spot"] = {"data": data, "ts": time.time()}
+                    logger.info(f"缓存已刷新: futures_spot ({len(data)} 条)")
+                    succeeded += 1
+            except Exception as e:
+                logger.warning(f"刷新缓存失败 [futures_spot]: {e}")
+                failed += 1
+        for source, func in _INDEX_SPOT_SOURCE_MAP.items():
+            try:
+                df = func()
+                if df is not None:
+                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    with _spot_cache_lock:
+                        _spot_cache["index_spot"] = {"data": data, "ts": time.time()}
+                    logger.info(f"缓存已刷新: index_spot ({len(data)} 条)")
+                    succeeded += 1
+            except Exception as e:
+                logger.warning(f"刷新缓存失败 [index_spot]: {e}")
+                failed += 1
+        for source, func in _BOND_COV_SPOT_SOURCE_MAP.items():
+            try:
+                df = func()
+                if df is not None:
+                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    with _spot_cache_lock:
+                        _spot_cache["bond_cov_spot"] = {"data": data, "ts": time.time()}
+                    logger.info(f"缓存已刷新: bond_cov_spot ({len(data)} 条)")
+                    succeeded += 1
+            except Exception as e:
+                logger.warning(f"刷新缓存失败 [bond_cov_spot]: {e}")
                 failed += 1
 
         # 静态数据仅在启动或每 _static_interval 个周期刷新
@@ -1322,6 +1399,11 @@ def cache_status(request: Request):
     for s in _FUND_SPOT_SOURCE_MAP:
         _intervals["fund_etf_spot"] = _CACHE_TTL
     _intervals["fund_lof_spot"] = _CACHE_TTL
+    for s in _HK_SPOT_SOURCE_MAP:
+        _intervals["stock_hk_spot_" + s] = _CACHE_TTL
+    _intervals["futures_spot"] = _CACHE_TTL
+    _intervals["index_spot"] = _CACHE_TTL
+    _intervals["bond_cov_spot"] = _CACHE_TTL
     for s in _US_SPOT_SOURCE_MAP:
         _intervals["stock_us_spot"] = _CACHE_TTL
     for k in _STATIC_CACHE_MAP:
@@ -1628,6 +1710,317 @@ def fund_search(
         headers={"X-Total-Count": str(total)},
     )
 
+
+@app_core.get(
+    path="/public/v1/stock_hk_list",
+    description="港股代码列表 (v1, 缓存)",
+    summary="返回港股通成份股，数据来自后台缓存",
+)
+def stock_hk_list_cached(
+    request: Request,
+    page: int = Query(0, ge=0, description="页码，0=不分页"),
+    page_size: int = Query(100, ge=1, le=1000, description="每页条数（最大 1000）"),
+):
+    with _spot_cache_lock:
+        entry = _spot_cache.get("stock_hk_list")
+    if entry is not None:
+        data = entry["data"]
+        total = len(data)
+        if page > 0:
+            data = data[(page - 1) * page_size : page * page_size]
+        return JSONResponse(status_code=status.HTTP_200_OK, content=data, headers={"X-Total-Count": str(total)})
+    if not _spot_cache_warm.is_set():
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"error": "缓存预热中，请稍后重试"})
+    return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": "港股列表数据源不可用"})
+
+
+@app_core.get(
+    path="/public/v1/stock_hk_spot",
+    description="港股实时行情 (v1, 缓存)",
+    summary="支持切换数据源（eastmoney/sina），可筛选个股",
+)
+def stock_hk_spot_universal(
+    request: Request,
+    source: str = Query("", description="eastmoney / sina"),
+    symbol: str = Query("", description="港股代码筛选，如 00700"),
+):
+    source = source or DEFAULT_SOURCE
+    if source not in _HK_SPOT_SOURCE_MAP:
+        valid = ", ".join(_HK_SPOT_SOURCE_MAP)
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": f"不支持的数据源: {source}，可选: {valid}"})
+    cache_key = "stock_hk_spot_" + source
+    with _spot_cache_lock:
+        entry = _spot_cache.get(cache_key)
+    if entry is not None:
+        data = entry["data"]
+        stale_headers = _stale_headers(entry["ts"])
+    elif not _spot_cache_warm.is_set():
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"error": "港股行情缓存预热中"})
+    else:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": "港股行情数据源不可用"})
+    if symbol:
+        code = symbol.strip().zfill(5)
+        data = [row for row in data if code in str(row.get("代码", row.get("code", "")))]
+        if not data:
+            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": f"未找到港股: {symbol}"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=data, headers=stale_headers)
+
+
+@app_core.get(
+    path="/public/v1/stock_hk_hist",
+    description="港股历史行情 (v1)",
+    summary="支持切换数据源（eastmoney/sina）",
+)
+def stock_hk_hist(
+    symbol: str = Query(..., description="港股代码，如 00700"),
+    source: str = Query("", description="eastmoney / sina"),
+    start_date: str = Query("19700101"),
+    end_date: str = Query("22220101"),
+    adjust: str = Query(""),
+):
+    source = source or DEFAULT_SOURCE
+    sc = _HK_HIST_SOURCE_MAP.get(source)
+    if sc is None:
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": f"不支持: {source}"})
+    try:
+        df = _call_akshare_direct(sc["func"], symbol=symbol, start_date=start_date, end_date=end_date, adjust=adjust)
+        if df is None:
+            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
+        temp_df = df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
+    except Exception as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/public/v1/stock_hk_search",
+    description="港股搜索 (v1)",
+    summary="基于缓存列表搜索港股代码或名称",
+)
+def stock_hk_search(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(20, ge=0, le=1000),
+):
+    matches, total = _search_cache("stock_hk_list", q, limit, "code", "name")
+    if matches is None:
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"error": "港股列表缓存未就绪"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=matches, headers={"X-Total-Count": str(total)})
+
+
+@app_core.get(
+    path="/public/v1/futures_spot",
+    description="期货实时行情 (v1, 缓存)",
+    summary="返回国际期货实时行情",
+)
+def futures_spot_cached(request: Request, symbol: str = Query("")):
+    cache_key = "futures_spot"
+    with _spot_cache_lock:
+        entry = _spot_cache.get(cache_key)
+    if entry is not None:
+        data = entry["data"]
+        stale_headers = _stale_headers(entry["ts"])
+    elif not _spot_cache_warm.is_set():
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"error": "期货行情缓存预热中"})
+    else:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": "期货行情数据源不可用"})
+    if symbol:
+        code = symbol.strip().upper()
+        data = [row for row in data if code in str(row).upper()]
+        if not data:
+            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": f"未找到: {symbol}"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=data, headers=stale_headers)
+
+
+@app_core.get(
+    path="/public/v1/futures_hist",
+    description="期货历史行情 (v1)",
+    summary="返回国际期货历史行情",
+)
+def futures_hist(
+    symbol: str = Query(..., description="期货代码，如 HG00Y"),
+    start_date: str = Query("19700101"),
+    end_date: str = Query("22220101"),
+):
+    try:
+        df = _call_akshare_direct(ak.futures_global_hist_em, symbol=symbol, start_date=start_date, end_date=end_date)
+        if df is None:
+            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
+        temp_df = df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
+    except Exception as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/public/v1/index_list",
+    description="全球指数列表 (v1, 缓存)",
+    summary="返回全球指数代码与名称",
+)
+def index_list_cached(
+    request: Request,
+    page: int = Query(0, ge=0),
+    page_size: int = Query(100, ge=1, le=1000),
+):
+    with _spot_cache_lock:
+        entry = _spot_cache.get("index_list")
+    if entry is not None:
+        data = entry["data"]
+        total = len(data)
+        if page > 0:
+            data = data[(page - 1) * page_size : page * page_size]
+        return JSONResponse(status_code=status.HTTP_200_OK, content=data, headers={"X-Total-Count": str(total)})
+    if not _spot_cache_warm.is_set():
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"error": "缓存预热中"})
+    return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": "指数列表数据源不可用"})
+
+
+@app_core.get(
+    path="/public/v1/index_spot",
+    description="全球指数实时行情 (v1, 缓存)",
+    summary="返回全球指数实时行情",
+)
+def index_spot_cached(request: Request, symbol: str = Query("")):
+    cache_key = "index_spot"
+    with _spot_cache_lock:
+        entry = _spot_cache.get(cache_key)
+    if entry is not None:
+        data = entry["data"]
+        stale_headers = _stale_headers(entry["ts"])
+    elif not _spot_cache_warm.is_set():
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"error": "指数行情缓存预热中"})
+    else:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": "指数行情数据源不可用"})
+    if symbol:
+        code = symbol.strip().upper()
+        data = [row for row in data if code in str(row).upper()]
+        if not data:
+            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": f"未找到: {symbol}"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=data, headers=stale_headers)
+
+
+@app_core.get(
+    path="/public/v1/index_hist",
+    description="全球指数历史行情 (v1)",
+    summary="支持切换数据源（eastmoney/sina）",
+)
+def index_hist(
+    symbol: str = Query(..., description="指数代码，如 OMX"),
+    source: str = Query(""),
+):
+    source = source or DEFAULT_SOURCE
+    sc = _INDEX_HIST_SOURCE_MAP.get(source)
+    if sc is None:
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": f"不支持: {source}"})
+    try:
+        df = _call_akshare_direct(sc["func"], symbol=symbol)
+        if df is None:
+            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
+        temp_df = df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
+    except Exception as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/public/v1/index_search",
+    description="全球指数搜索 (v1)",
+    summary="基于缓存列表搜索指数名称或代码",
+)
+def index_search(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(20, ge=0, le=1000),
+):
+    matches, total = _search_cache("index_list", q, limit, "代码", "指数名称")
+    if matches is None:
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"error": "指数列表缓存未就绪"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=matches, headers={"X-Total-Count": str(total)})
+
+
+@app_core.get(
+    path="/public/v1/bond_cov_list",
+    description="可转债列表 (v1, 缓存)",
+    summary="返回可转债代码、名称与核心指标",
+)
+def bond_cov_list_cached(
+    request: Request,
+    page: int = Query(0, ge=0),
+    page_size: int = Query(100, ge=1, le=1000),
+):
+    with _spot_cache_lock:
+        entry = _spot_cache.get("bond_cov_list")
+    if entry is not None:
+        data = entry["data"]
+        total = len(data)
+        if page > 0:
+            data = data[(page - 1) * page_size : page * page_size]
+        return JSONResponse(status_code=status.HTTP_200_OK, content=data, headers={"X-Total-Count": str(total)})
+    if not _spot_cache_warm.is_set():
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"error": "缓存预热中"})
+    return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": "可转债列表数据源不可用"})
+
+
+@app_core.get(
+    path="/public/v1/bond_cov_spot",
+    description="可转债实时行情 (v1, 缓存)",
+    summary="返回可转债实时行情",
+)
+def bond_cov_spot_cached(request: Request, symbol: str = Query("")):
+    cache_key = "bond_cov_spot"
+    with _spot_cache_lock:
+        entry = _spot_cache.get(cache_key)
+    if entry is not None:
+        data = entry["data"]
+        stale_headers = _stale_headers(entry["ts"])
+    elif not _spot_cache_warm.is_set():
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"error": "可转债行情缓存预热中"})
+    else:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": "可转债行情数据源不可用"})
+    if symbol:
+        code = symbol.strip().lower()
+        data = [row for row in data if code in str(row.get("symbol", row.get("code", ""))).lower()]
+        if not data:
+            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": f"未找到: {symbol}"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=data, headers=stale_headers)
+
+
+@app_core.get(
+    path="/public/v1/bond_cov_hist",
+    description="可转债历史行情 (v1)",
+    summary="返回可转债历史行情",
+)
+def bond_cov_hist(symbol: str = Query(..., description="可转债代码，如 sh010107")):
+    sc = _BOND_COV_HIST_SOURCE_MAP.get("sina")
+    try:
+        df = _call_akshare_direct(sc["func"], symbol=symbol)
+        if df is None:
+            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
+        temp_df = df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败"})
+    except Exception as e:
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/public/v1/bond_cov_search",
+    description="可转债搜索 (v1)",
+    summary="基于缓存列表搜索可转债代码或名称",
+)
+def bond_cov_search(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(20, ge=0, le=1000),
+):
+    matches, total = _search_cache("bond_cov_list", q, limit, "债券代码", "债券简称")
+    if matches is None:
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"error": "可转债列表缓存未就绪"})
+    return JSONResponse(status_code=status.HTTP_200_OK, content=matches, headers={"X-Total-Count": str(total)})
 
 @app_core.get(
     path="/public/v1/stock_us_search",
