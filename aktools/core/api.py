@@ -62,6 +62,7 @@ _SPOT_SOURCE_MAP = {
 # ETF 实时行情数据源
 _FUND_SPOT_SOURCE_MAP = {
     "eastmoney": ak.fund_etf_spot_em,
+    "lof": ak.fund_lof_spot_em,
 }
 
 # ETF 历史行情数据源
@@ -83,6 +84,7 @@ _US_HIST_SOURCE_MAP = {
 _STATIC_CACHE_MAP = {
     "stock_cn_list": ak.stock_info_a_code_name,
     "fund_list": ak.fund_name_em,
+    "fund_open_list": ak.fund_open_fund_daily_em,
     "stock_us_list": ak.get_us_stock_name,
     "board_industry_list": ak.stock_board_industry_name_em,
     "board_concept_list": ak.stock_board_concept_name_em,
@@ -247,18 +249,19 @@ def _refresh_cache():
             except Exception as e:
                 logger.warning(f"刷新缓存失败 [stock_spot_{source}]: {e}")
                 failed += 1
-        # 刷新实时行情（每周期）— ETF
+        # 刷新实时行情（每周期）— ETF / LOF
         for source, func in _FUND_SPOT_SOURCE_MAP.items():
+            cache_key = "fund_etf_spot" if source == "eastmoney" else "fund_lof_spot"
             try:
                 df = func()
                 if df is not None:
                     data = json.loads(df.to_json(orient="records", date_format="iso"))
                     with _spot_cache_lock:
-                        _spot_cache["fund_etf_spot"] = {"data": data, "ts": time.time()}
-                    logger.info(f"缓存已刷新: fund_etf_spot ({len(data)} 条)")
+                        _spot_cache[cache_key] = {"data": data, "ts": time.time()}
+                    logger.info(f"缓存已刷新: {cache_key} ({len(data)} 条)")
                     succeeded += 1
             except Exception as e:
-                logger.warning(f"刷新缓存失败 [fund_etf_spot]: {e}")
+                logger.warning(f"刷新缓存失败 [{cache_key}]: {e}")
                 failed += 1
         # 刷新实时行情（每周期）— US
         for source, func in _US_SPOT_SOURCE_MAP.items():
@@ -1318,6 +1321,7 @@ def cache_status(request: Request):
         _intervals["stock_cn_spot_" + s] = _CACHE_TTL
     for s in _FUND_SPOT_SOURCE_MAP:
         _intervals["fund_etf_spot"] = _CACHE_TTL
+    _intervals["fund_lof_spot"] = _CACHE_TTL
     for s in _US_SPOT_SOURCE_MAP:
         _intervals["stock_us_spot"] = _CACHE_TTL
     for k in _STATIC_CACHE_MAP:
@@ -1421,6 +1425,180 @@ def stock_cn_search(
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"error": "股票列表缓存未就绪，请稍后重试"},
+        )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content=matches,
+        headers={"X-Total-Count": str(total)},
+    )
+
+
+@app_core.get(
+    path="/public/v1/fund_lof_spot",
+    description="LOF 实时行情接口 (v1, 缓存)",
+    summary="返回 LOF 实时行情，数据来自后台缓存",
+)
+def fund_lof_spot_cached(
+    request: Request,
+    symbol: str = Query("", description="LOF 代码筛选，留空返回全市场"),
+):
+    cache_key = "fund_lof_spot"
+    with _spot_cache_lock:
+        entry = _spot_cache.get(cache_key)
+    if entry is not None:
+        data = entry["data"]
+        age = int(time.time() - entry["ts"])
+        stale_headers = _stale_headers(entry["ts"])
+        logger.info(f"LOF 行情缓存命中: age={age}s, count={len(data)}")
+    elif not _spot_cache_warm.is_set():
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "LOF 行情缓存预热中，请稍后重试"},
+            headers={"Retry-After": "30"},
+        )
+    else:
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": "LOF 行情数据源不可用，请稍后重试"},
+        )
+    if symbol:
+        code = symbol.strip()
+        data = [row for row in data if code in str(row.get("基金代码", row.get("代码", "")))]
+        if not data:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": f"未找到 LOF 代码: {symbol}"},
+            )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK, content=data, headers=stale_headers
+    )
+
+
+@app_core.get(
+    path="/public/v1/fund_lof_hist",
+    description="LOF 历史行情接口 (v1)",
+    summary="返回 LOF 历史行情",
+)
+def fund_lof_hist(
+    symbol: str = Query(..., description="LOF 代码，如 166009"),
+    period: str = Query("daily", description="周期: daily / weekly / monthly"),
+    start_date: str = Query("19700101", description="开始日期 YYYYMMDD"),
+    end_date: str = Query("20500101", description="结束日期 YYYYMMDD"),
+    adjust: str = Query("", description="复权类型"),
+):
+    try:
+        received_df = _call_akshare_direct(
+            ak.fund_lof_hist_em, symbol=symbol, period=period,
+            start_date=start_date, end_date=end_date, adjust=adjust,
+        )
+        if received_df is None:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "该接口返回数据为空"},
+            )
+        temp_df = received_df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        logger.error(f"LOF 历史重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
+        )
+    except Exception as e:
+        logger.error(f"LOF 历史调用失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"数据接口调用异常: {e}"},
+        )
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/public/v1/fund_open_list",
+    description="场外开放式基金列表 (v1, 缓存)",
+    summary="返回全部开放式基金及最新净值，数据来自后台缓存",
+)
+def fund_open_list_cached(
+    request: Request,
+    page: int = Query(0, ge=0, description="页码，0=不分页"),
+    page_size: int = Query(100, ge=1, le=1000, description="每页条数（最大 1000）"),
+):
+    with _spot_cache_lock:
+        entry = _spot_cache.get("fund_open_list")
+    if entry is not None:
+        data = entry["data"]
+        age = int(time.time() - entry["ts"])
+        total = len(data)
+        if page > 0:
+            start = (page - 1) * page_size
+            data = data[start : start + page_size]
+        logger.info(f"场外基金列表缓存命中: age={age}s, returned={len(data)}/{total}")
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=data,
+            headers={"X-Total-Count": str(total)},
+        )
+    if not _spot_cache_warm.is_set():
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "缓存预热中，请稍后重试"},
+            headers={"Retry-After": "30"},
+        )
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={"error": "场外基金列表数据源不可用，请稍后重试"},
+    )
+
+
+@app_core.get(
+    path="/public/v1/fund_open_hist",
+    description="场外开放式基金历史净值接口 (v1)",
+    summary="返回开放式基金历史净值走势",
+)
+def fund_open_hist(
+    symbol: str = Query(..., description="基金代码，如 710001"),
+    indicator: str = Query("单位净值走势", description="指标: 单位净值走势 / 累计净值走势"),
+    period: str = Query("成立来", description="周期: 成立来 / 近1年 / 近6月 / 近3月 / 近1月"),
+):
+    try:
+        received_df = _call_akshare_direct(
+            ak.fund_open_fund_info_em,
+            symbol=symbol, indicator=indicator, period=period,
+        )
+        if received_df is None:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "该接口返回数据为空"},
+            )
+        temp_df = received_df.to_json(orient="records", date_format="iso")
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        logger.error(f"场外基金历史重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
+        )
+    except Exception as e:
+        logger.error(f"场外基金历史调用失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={"error": f"数据接口调用异常: {e}"},
+        )
+    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+
+
+@app_core.get(
+    path="/public/v1/fund_open_search",
+    description="场外基金搜索 (v1)",
+    summary="基于缓存列表搜索场外基金代码或名称",
+)
+def fund_open_search(
+    q: str = Query(..., min_length=1, description="搜索关键词"),
+    limit: int = Query(20, ge=0, le=1000, description="最大返回条数，0=不限制"),
+):
+    matches, total = _search_cache("fund_open_list", q, limit, "基金代码", "基金简称")
+    if matches is None:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "场外基金列表缓存未就绪，请稍后重试"},
         )
     return JSONResponse(
         status_code=status.HTTP_200_OK,
