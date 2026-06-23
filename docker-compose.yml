@@ -3,6 +3,9 @@ services:
     build: .
     image: aktools:latest
     container_name: aktools
+    # 以宿主机用户身份运行，确保挂载卷中的文件权限正确
+    # 通过 .env 文件或环境变量设置 UID/GID，默认 1000:1000
+    user: "${UID:-1000}:${GID:-1000}"
     ports:
       - "8080:8080"   # API
       - "8081:8081"   # Docs

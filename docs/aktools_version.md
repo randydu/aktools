@@ -13,6 +13,95 @@
 
 ## 开发进度
 
+0.1.5: fix: Docker non-root user + docs anchor + version sync
+    1. Docker 容器以非 root 用户运行（UID 1000），挂载卷文件不再归 root 所有
+    2. docker-compose.yml 增加 user 指令支持宿主机 UID 匹配
+    3. docker-entrypoint.sh 增加数据目录可写性检查
+    4. 修复 api-reference.md 中 #认证 锚点失效（中文被 slugify 过滤）
+    5. 同步 aktools_version.md，补齐 0.1.4→0.0.90 共 13 个版本条目
+
+0.1.4: add: fund ETF/LOF minute-level K-line, restore 14 endpoints
+    1. 新增 fund_etf_hist_intraday 和 fund_lof_hist_intraday 接口（东方财富源）
+    2. 恢复 14 个丢失的接口（港股、期货、指数、可转债，全类别）
+    3. 文档全面同步：所有 46 个接口验证代码到文档一致
+    4. 更新 AGENTS.md 含完整接口表和数据源可用性矩阵
+
+0.1.3: add: stock_cn_hist_intraday + stock_profile
+    1. 新增 A 股分时行情接口（支持 sina/eastmoney 双数据源）
+    2. 恢复 stock_profile 接口（行业与概念板块归属）
+    3. 修复 Sina 分时源忽略日期范围：历史查询自动回退到 eastmoney
+
+0.1.2: fix: fix Docker build and docs site
+    1. 修复 Dockerfile 从本地源码构建（不再从 PyPI 拉取）
+    2. 修复 Docs 站点（site/）在 8081 端口提供服务
+    3. 新增 .dockerignore 排除构建产物
+
+0.1.1: fix: fix startup logging and cache migration
+    1. 修复启动时 cache 恢复阶段的 NameError（logger 未定义）
+    2. 修复 A 股缓存键迁移（stock_list → stock_cn_list，stock_spot_* → stock_cn_spot_*）
+    3. 改进启动日志：显示 cache.db 状态（缺失 / 为空 / 错误）
+
+0.1.0: 首个稳定版本 — V1 通用 API 层（30+ 接口 / 10 大类）
+    1. 智能缓存引擎：交易日感知刷新、按缓存键暂停/恢复、响应陈旧头
+    2. SQLite 缓存持久化（WAL 模式），崩溃安全即时恢复
+    3. API Token 认证：自动创建 root token、预配置 token 文件、Token CRUD
+    4. Docker：构建脚本、compose 文件（命名卷）、部署指南
+    5. 可配置数据目录（AKTOOLS_DATA_DIR）、日志级别（AKTOOLS_LOG_LEVEL）、代理（AKSHARE_PROXY）
+    6. 10 大类全接口覆盖：A 股、美股、港股、ETF、LOF、场外基金、可转债、期货、指数、板块
+    7. 管理接口：缓存状态、默认数据源切换、缓存控制、Token 管理
+
+0.0.97: add: add HK stocks, LOF, funds, futures, indices, bond_cov APIs
+    1. 新增港股、LOF、场外基金、期货、指数、可转债通用 API（list/spot/hist/search）
+    2. 新增 index、bond_cov、fund_open 模糊搜索接口
+    3. 支持按缓存键暂停/恢复（?keys= 参数，如 ?keys=stock_us_spot,stock_us_list）
+    4. cache_status 响应增加 paused_keys 数组
+
+0.0.96: add: add SQLite token auth + US stock APIs
+    1. 新增 SQLite API Token 认证（替代旧 akhare/akfamily 凭据）
+    2. 首次启动自动创建 root token 并打印到日志
+    3. 支持预配置 Token 文件（AKTOOLS_TOKENS_FILE 环境变量，JSON 格式）
+    4. 新增美股通用 API（list/spot/hist/search）
+    5. 变更类接口移至 /api/private/v1/（需认证）：缓存控制、默认源切换、Token CRUD
+    6. POST /auth/token 返回 410，引导用户使用 API Token
+
+0.0.95: add: add fund/ETF APIs + smart caching
+    1. 新增基金/ETF 通用 API（fund_list、fund_etf_spot、fund_etf_hist）
+    2. 新增模糊搜索接口（stock_search、fund_search），<10ms 响应
+    3. 新增智能缓存：交易日感知（交易时段 60s / 非交易时段 300s）、周末检测
+    4. 新增缓存控制接口（pause/resume/status）
+    5. 新增陈旧数据头（X-Cache-Stale、X-Cache-Age）用于实时接口
+    6. 新增列表分页（page/page_size）+ X-Total-Count 响应头
+    7. 修复缓存列表接口快速失败（不再回退到慢速直接调用）
+    8. 修复重复的 stock_spot 刷新循环（从缓存线程中移除）
+
+0.0.94: add: add unified A-share spot API (v1)
+    1. 新增统一 A 股实时行情接口（支持 eastmoney/sina 数据源切换）
+    2. 新增内存缓存 + 后台刷新（60s TTL），预热后响应 <10ms
+    3. 新增缓存回退：冷数据自动从其他可用源获取
+    4. 新增预热门控：初始填充期间返回 503 + Retry-After
+    5. 新增缓存 A 股列表接口（每日刷新，<10ms 响应）
+    6. 修复缓存回退检查所有源后再尝试慢速直接调用
+    7. 修复股票名称空格问题（"柳    工" → "柳工"）
+
+0.0.93: add: add Docker build script and docker-compose
+    1. 新增 docker-build.sh 构建脚本
+    2. 新增 docker-compose.yml 编排文件
+    3. 新增 Docker 部署指南（docs/docker-howto.md，含海外用户配置）
+
+0.0.92: add: add unified A-share history API (v1)
+    1. 新增统一 A 股历史行情接口（支持 eastmoney/sina/tencent 三源切换）
+    2. 新增代理支持（AKSHARE_PROXY 环境变量）
+    3. 新增自动重试机制（网络错误重试 3 次，间隔 5 秒）
+    4. 新增运行时默认数据源切换（GET/POST /api/v1/default_source）
+    5. 新增 API 参考文档（docs/api-reference.md）和 V1 API 文档（docs/v1-api.md）
+    6. 新增 REASONIX.md 项目知识库
+    7. 修复 AKShare 异常返回 502 而非 500
+    8. 修复 V1 路由注册顺序（避免被通用代理路由 /api/public/{item_id} 捕获）
+
+0.0.91: fix: fix update python 3.14
+
+0.0.90: fix: fix get_latest_version
+
 0.0.89: fix: fix docs
 
 0.0.89: fix: fix get_latest_version

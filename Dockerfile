@@ -20,6 +20,11 @@ RUN mkdir -p /app/data
 ENV AKTOOLS_DATA_DIR=/app/data
 ENV PYTHONPATH=/app/src
 
+# 创建非 root 用户（UID 1000 匹配大多数宿主机用户，确保卷挂载权限正确）
+RUN groupadd -g 1000 aktools && useradd -u 1000 -g 1000 -d /app aktools
+RUN chown -R aktools:aktools /app
+USER aktools
+
 # 默认启动
 EXPOSE 8080 8081
 CMD ["/app/docker-entrypoint.sh"]

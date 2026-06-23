@@ -36,5 +36,8 @@ site/
 # Reasonix
 .reasonix/
 
+# RTK
+.rtk/
+
 .python-version
 _patch_cache.py

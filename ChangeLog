@@ -1,5 +1,19 @@
 # ChangeLog
 
+## 0.1.5
+
+### Fixed
+
+- Docker container now runs as non-root user (`aktools`, UID 1000) — log/cache/Token files on mounted volumes no longer owned by root
+- Broken `#认证` anchor in `api-reference.md` — MkDocs slugify stripped Chinese characters; replaced with explicit `<a id="auth">` anchor
+- `docker-entrypoint.sh` now checks data directory writability before starting services, with clear remediation message
+
+### Changed
+
+- `docker-compose.yml` adds `user:` directive (`${UID:-1000}:${GID:-1000}`) so host UID can be matched via `.env`
+- `docs/docker-howto.md` added data directory permissions section with setup + troubleshooting
+- `docs/aktools_version.md` synced with ChangeLog — 13 missing version entries added (0.1.4 → 0.0.90)
+
 ## 0.1.4
 
 ### Added

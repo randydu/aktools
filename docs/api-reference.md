@@ -95,7 +95,7 @@ curl "http://127.0.0.1:8080/api/public/stock_hk_daily?symbol=00700&start_date=20
 
 `GET /api/private/{item_id}`（需要认证）
 
-行为与公开接口一致，但需要 Bearer Token 认证（见下方[认证](#认证)章节）。
+行为与公开接口一致，但需要 Bearer Token 认证（见下方[认证](#auth)章节）。
 
 ---
 
@@ -609,6 +609,8 @@ curl -X POST "http://127.0.0.1:8080/api/private/v1/default_source?source=sina" \
 切换后，V1 历史接口不传 `?source=` 时将使用新默认值。
 
 ---
+
+<a id="auth"></a>
 
 ## 认证
 
