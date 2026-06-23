@@ -489,10 +489,21 @@ curl "http://127.0.0.1:8080/api/public/v1/fund_etf_spot?symbol=159915"
 | `end_date` | 否 | `20500101` | 结束日期 YYYYMMDD |
 | `adjust` | 否 | `""` | 复权类型 |
 
-```sh
-# ETF 历史数据（Sina 源）
-curl "http://127.0.0.1:8080/api/public/v1/fund_etf_hist?symbol=sh510050&source=sina"
-```
+### ETF 分时行情
+
+`GET /api/public/v1/fund_etf_hist_intraday?symbol=159707&period=5`
+
+### LOF 分时行情
+
+`GET /api/public/v1/fund_lof_hist_intraday?symbol=166009&period=5`
+
+分钟级 K 线，仅东方财富源，支持 `start_date` / `end_date`。
+
+### 个股档案
+
+`GET /api/public/v1/stock_profile?symbol=600000`
+
+返回个股的行业与概念板块归属，数据由后台缓存（每日刷新）。
 
 ### 搜索接口
 
@@ -507,6 +518,7 @@ curl "http://127.0.0.1:8080/api/public/v1/fund_etf_hist?symbol=sh510050&source=s
 | `/api/public/v1/stock_hk_search` | 港股代码/名称 |
 | `/api/public/v1/fund_search` | 基金代码/简称 |
 | `/api/public/v1/fund_open_search` | 场外基金代码/简称 |
+| `/api/public/v1/stock_hk_search` | 港股代码/名称 |
 | `/api/public/v1/bond_cov_search` | 可转债代码/简称 |
 | `/api/public/v1/index_search` | 全球指数名称/代码 |
 
