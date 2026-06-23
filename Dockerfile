@@ -5,7 +5,7 @@ FROM python:3.13-slim-bookworm
 RUN pip install --upgrade pip
 
 # 安装运行时依赖
-RUN pip install --no-cache-dir akshare fastapi uvicorn gunicorn python-multipart jinja2 \
+RUN pip install --no-cache-dir akshare fastapi uvicorn gunicorn python-multipart jinja2 orjson \
     -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host=mirrors.aliyun.com --upgrade
 
 # 复制项目源码（含预构建的 site/ 目录）
