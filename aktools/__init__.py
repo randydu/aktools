@@ -104,8 +104,9 @@ Changelog
 0.1.1: fix logger NameError at startup + cache key migration
 0.1.2: fix Dockerfile local source build + .dockerignore
 0.1.3: add intraday API + restore stock_profile
+0.1.4: restore 14 missing endpoints, fund intraday, full docs sync
 """
 
 __title__ = "AKTools"
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 __author__ = "AKFamily"

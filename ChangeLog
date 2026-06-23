@@ -1,5 +1,20 @@
 # ChangeLog
 
+## 0.1.4
+
+### Added
+
+- `fund_etf_hist_intraday` + `fund_lof_hist_intraday` — fund minute-level K-line (eastmoney)
+- 14 missing endpoints restored: HK stocks, futures, indices, convertible bonds (all categories)
+- Comprehensive docs sync: all 46 endpoints verified code-to-docs
+- `AGENTS.md` updated with full endpoint table and source availability matrix
+
+### Fixed
+
+- 14 endpoints (HK, futures, index, bond_cov) lost during earlier `git checkout`; restored with cache maps + refresh blocks
+- `fund_open_hist`, `fund_open_list`, `fund_open_search`, `fund_lof_spot`, `fund_lof_hist` restored
+- MkDocs search section consolidated — all 7 search endpoints in one table
+
 ## 0.1.3
 
 ### Added
