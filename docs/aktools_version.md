@@ -13,6 +13,13 @@
 
 ## 开发进度
 
+0.1.6: add: gzip compression + orjson serialization + RTK integration
+    1. 新增 gzip 响应压缩（Accept-Encoding: gzip → 80-90% 体积缩减，向后兼容）
+    2. 以 orjson 单次序列化替代 pandas to_json → json.loads → JSONResponse 双重序列化（26 处）
+    3. RTK token 节省集成：REASONIX.md 命令规则 + .rtk/filters.toml 项目模板
+    4. Dockerfile 增加 orjson 依赖
+    5. api-reference.md 和 AGENTS.md 新增压缩文档
+
 0.1.5: fix: Docker non-root user + docs anchor + version sync
     1. Docker 容器以非 root 用户运行（UID 1000），挂载卷文件不再归 root 所有
     2. docker-compose.yml 增加 user 指令支持宿主机 UID 匹配

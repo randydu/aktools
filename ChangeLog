@@ -1,5 +1,18 @@
 # ChangeLog
 
+## 0.1.6
+
+### Added
+
+- GZip response compression — clients sending `Accept-Encoding: gzip` receive 80-90% smaller JSON payloads; backward compatible (no header → uncompressed)
+- RTK token-savings integration via `REASONIX.md` command rules + `.rtk/filters.toml` project scaffold
+- Compression docs in `api-reference.md` and `AGENTS.md` response headers table
+
+### Changed
+
+- Replaced pandas `to_json()` → `json.loads()` → `JSONResponse` double-serialization with `orjson` single-pass `_df_to_json_bytes()` across all 26 call sites — faster, slightly smaller output
+- `Dockerfile` adds `orjson` dependency for compressed response support
+
 ## 0.1.5
 
 ### Fixed
