@@ -44,6 +44,32 @@ pre-commit install
 mkdocs serve
 ```
 
+## RTK (Token Savings)
+
+RTK v0.42.0 is installed at `~/.local/bin/rtk`. Reasonix has no PreToolUse hook, so **manually prefix** these commands with `rtk`:
+
+### Always wrap with `rtk`
+
+| Command | Rewrites to | Token savings |
+|---|---|---|
+| `pytest` | `rtk pytest` | ~90% (failures only) |
+| `pytest -x` | `rtk pytest -x` | ~90% |
+| `ruff check .` | `rtk ruff check .` | ~80% (JSON, grouped) |
+| `ruff format .` | `rtk ruff format .` | ~80% |
+| `git diff` | `rtk git diff` | ~75% (condensed) |
+| `git log` | `rtk git log` | ~80% (one-line) |
+| `pip install` | `rtk pip install` | ~80% (strips progress) |
+| `pip list` | `rtk pip list` | ~80% |
+| `docker ps` | `rtk docker ps` | ~80% |
+
+### Skip RTK (already compact)
+
+`git status`, `git add`, `git commit`, `git push`, `ls`, `grep -c`, `which`, `find`, `echo`, `python -m aktools`, `mkdocs serve`, `pre-commit install`
+
+### Unknown commands
+
+Check first: `rtk rewrite "<cmd>"` — if it prints a rewritten version, use that. If it exits 1 with no output, run the command directly.
+
 ## Conventions
 
 - **Conventional Commits** enforced via pre-commit (`conventional-pre-commit` hook on `commit-msg` stage)

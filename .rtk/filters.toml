@@ -1,0 +1,34 @@
+# RTK project-specific filters for AKTools
+#
+# Stage pipeline (applied in order):
+#   strip_ansi → replace → match_output → strip/keep_lines →
+#   truncate_lines_at → head/tail_lines → max_lines → on_empty
+#
+# Three-tier lookup (first match wins):
+#   1. .rtk/filters.toml (this file, requires `rtk trust`)
+#   2. ~/.config/rtk/filters.toml (user-global)
+#   3. Built-in filters (compiled into rtk binary)
+#
+# Full reference: https://github.com/rtk-ai/rtk/blob/develop/src/core/README.md
+
+# ── Built-in coverage for this project ──────────────────────────
+# pytest       → rtk pytest          (state machine, -90% savings)
+# ruff check   → rtk ruff check      (JSON API, -80% savings)
+# ruff format  → rtk ruff format     (text summary, -80% savings)
+# pip install  → rtk pip install     (progress filtering, -80%)
+# pip list     → rtk pip list        (JSON → compact table, -80%)
+# git diff     → rtk git diff        (condensed, -75%)
+# git log      → rtk git log         (one-line, -80%)
+# docker ps    → rtk docker ps       (compact list, -80%)
+#
+# All of the above are handled by RTK's built-in filters.
+# Add project-specific rules below if needed.
+
+# ── Example: custom filter for docker-build.sh ─────────────────
+# [[match_output]]
+# pattern = "^Done\\. Run with: docker compose up"
+# message = "ok aktools:latest"
+#
+# [head_lines]
+# count = 5
+# omit_message = "[build output truncated — see full log]"

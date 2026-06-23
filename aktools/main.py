@@ -21,6 +21,7 @@ if _proxy:
     ak.set_proxies({"http": _proxy, "https": _proxy})
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 
 from aktools.auth.token_api import app_token_mgmt
@@ -87,6 +88,11 @@ async def get_version():
 
 
 origins = ["*"]  # 此处设置可以访问的协议，IP和端口信息
+
+# GZip compression — clients sending Accept-Encoding: gzip get 80-90% smaller responses
+# minimum_size=1024 avoids compressing tiny payloads (error responses, pings, etc.)
+# Must be registered BEFORE CORS to intercept response bodies correctly
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.add_middleware(
     middleware_class=CORSMiddleware,

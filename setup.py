@@ -45,6 +45,7 @@ setuptools.setup(
         "python-multipart>=0.0.9",
         "jinja2>=3.1.2",
         "typer[standard]>=0.6.1",
+        "orjson>=3.10",
     ],
     package_data={"": ["*.py", "*.json", "*.pk", "*.woff", "*.html", "*.ico"]},
     keywords=[

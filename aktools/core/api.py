@@ -6,6 +6,8 @@ Desc: HTTP 模式主文件
 """
 import json
 import logging
+
+import orjson
 import os
 import re
 import threading
@@ -19,7 +21,7 @@ import akshare as ak
 from fastapi import APIRouter
 from fastapi import Depends, status
 from fastapi import Query, Request
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import Timeout as RequestsTimeout
@@ -38,6 +40,20 @@ RETRY_DELAY_SECONDS = 5
 # ── 数据目录（Docker 友好） ──────────────────────────────────────
 _DATA_DIR = os.getenv("AKTOOLS_DATA_DIR", os.path.join(os.getcwd(), "data"))
 os.makedirs(_DATA_DIR, exist_ok=True)
+
+
+def _df_to_json_bytes(df):
+    """Serialize a DataFrame to JSON bytes via orjson (single-pass, compact).
+
+    Replaces the double-serialization dance of
+        df.to_json(orient=\"records\") → json.loads() → JSONResponse.
+    Uses orjson with numpy support + default=str fallback for NaT/null values.
+    """
+    records = df.to_dict(orient="records")
+    return orjson.dumps(
+        records, default=str, option=orjson.OPT_SERIALIZE_NUMPY
+    )
+
 
 DEFAULT_SOURCE = os.getenv("AKSHARE_DEFAULT_SOURCE", "eastmoney")  # mutable — changed by /api/v1/default_source
 
@@ -268,7 +284,7 @@ def _refresh_cache():
             try:
                 df = func()
                 if df is not None:
-                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    data = df.to_dict(orient="records")
                     with _spot_cache_lock:
                         _spot_cache["stock_cn_spot_" + source] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: stock_spot_{source} ({len(data)} 条)")
@@ -282,7 +298,7 @@ def _refresh_cache():
             try:
                 df = func()
                 if df is not None:
-                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    data = df.to_dict(orient="records")
                     with _spot_cache_lock:
                         _spot_cache[cache_key] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: {cache_key} ({len(data)} 条)")
@@ -295,7 +311,7 @@ def _refresh_cache():
             try:
                 df = func()
                 if df is not None:
-                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    data = df.to_dict(orient="records")
                     with _spot_cache_lock:
                         _spot_cache["stock_us_spot"] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: stock_us_spot ({len(data)} 条)")
@@ -308,7 +324,7 @@ def _refresh_cache():
             try:
                 df = func()
                 if df is not None:
-                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    data = df.to_dict(orient="records")
                     with _spot_cache_lock:
                         _spot_cache["stock_hk_spot_" + source] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: stock_hk_spot_{source} ({len(data)} 条)")
@@ -321,7 +337,7 @@ def _refresh_cache():
             try:
                 df = func()
                 if df is not None:
-                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    data = df.to_dict(orient="records")
                     with _spot_cache_lock:
                         _spot_cache["futures_spot"] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: futures_spot ({len(data)} 条)")
@@ -333,7 +349,7 @@ def _refresh_cache():
             try:
                 df = func()
                 if df is not None:
-                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    data = df.to_dict(orient="records")
                     with _spot_cache_lock:
                         _spot_cache["index_spot"] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: index_spot ({len(data)} 条)")
@@ -345,7 +361,7 @@ def _refresh_cache():
             try:
                 df = func()
                 if df is not None:
-                    data = json.loads(df.to_json(orient="records", date_format="iso"))
+                    data = df.to_dict(orient="records")
                     with _spot_cache_lock:
                         _spot_cache["bond_cov_spot"] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: bond_cov_spot ({len(data)} 条)")
@@ -363,7 +379,7 @@ def _refresh_cache():
                     else:
                         df = func()
                         if df is not None:
-                            data = json.loads(df.to_json(orient="records", date_format="iso"))
+                            data = df.to_dict(orient="records")
                         else:
                             data = None
                     if data is not None:
@@ -505,7 +521,6 @@ def root(
                     status_code=status.HTTP_404_NOT_FOUND,
                     content={"error": "该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz"},
                 )
-            temp_df = received_df.to_json(orient="records", date_format="iso")
         except KeyError as e:
             return JSONResponse(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -529,7 +544,7 @@ def root(
                     "error": f"数据接口调用异常: {e}，可能是上游数据源暂时不可用，请稍后重试"
                 },
             )
-        return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+        return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
     else:
         try:
             received_df = _call_akshare(item_id, eval_str)
@@ -538,7 +553,6 @@ def root(
                     status_code=status.HTTP_404_NOT_FOUND,
                     content={"error": "该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz"},
                 )
-            temp_df = received_df.to_json(orient="records", date_format="iso")
         except KeyError as e:
             return JSONResponse(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -562,7 +576,7 @@ def root(
                     "error": f"数据接口调用异常: {e}，可能是上游数据源暂时不可用，请稍后重试"
                 },
             )
-        return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+        return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
 
 @app_core.get(
@@ -606,7 +620,6 @@ def stock_cn_hist(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={"error": "该接口返回数据为空，请确认参数是否正确"},
             )
-        temp_df = received_df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         logger.error(f"统一接口 {source} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
         return JSONResponse(
@@ -622,7 +635,7 @@ def stock_cn_hist(
             content={"error": f"数据接口调用异常: {e}"},
         )
 
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
 
 @app_core.get(
@@ -676,7 +689,6 @@ def stock_cn_hist_intraday(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={"error": "该接口返回数据为空"},
             )
-        temp_df = received_df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         logger.error(f"分时 {source} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
         return JSONResponse(
@@ -690,7 +702,7 @@ def stock_cn_hist_intraday(
             content={"error": f"数据接口调用异常: {e}"},
         )
 
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
 
 @app_core.get(
@@ -786,7 +798,7 @@ def stock_cn_spot(
                     status_code=status.HTTP_404_NOT_FOUND,
                     content={"error": "该接口返回数据为空"},
                 )
-            data = json.loads(df.to_json(orient="records", date_format="iso"))
+            data = df.to_dict(orient="records")
         except (RequestsConnectionError, RequestsTimeout) as e:
             logger.error(f"实时行情 {source} 直接调用失败: {e}")
             return JSONResponse(
@@ -919,12 +931,11 @@ def fund_etf_hist_intraday(
         )
         if df is None:
             return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
-        temp_df = df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
     except Exception as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(df), media_type="application/json")
 
 
 @app_core.get(
@@ -947,12 +958,11 @@ def fund_lof_hist_intraday(
         )
         if df is None:
             return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
-        temp_df = df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
     except Exception as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(df), media_type="application/json")
 
 
 @app_core.get(
@@ -1041,7 +1051,6 @@ def fund_etf_hist_universal(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={"error": "该接口返回数据为空，请确认参数是否正确"},
             )
-        temp_df = received_df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         logger.error(f"ETF 历史 {source} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
         return JSONResponse(
@@ -1057,7 +1066,7 @@ def fund_etf_hist_universal(
             content={"error": f"数据接口调用异常: {e}"},
         )
 
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
 
 @app_core.get(
@@ -1183,7 +1192,6 @@ def stock_us_hist_universal(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={"error": "该接口返回数据为空，请确认参数是否正确"},
             )
-        temp_df = received_df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         logger.error(f"美股历史 {source} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
         return JSONResponse(
@@ -1199,7 +1207,7 @@ def stock_us_hist_universal(
             content={"error": f"数据接口调用异常: {e}"},
         )
 
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
 
 # ── 板块 V1 端点 ──────────────────────────────────────────────
@@ -1506,7 +1514,7 @@ def _cached_on_demand(cache_key: str, func, **kwargs) -> tuple[list | None, int 
         df = _call_akshare_direct(func, **kwargs)
         if df is None:
             return None, 404
-        data = json.loads(df.to_json(orient="records", date_format="iso"))
+        data = df.to_dict(orient="records")
         with _spot_cache_lock:
             _spot_cache[cache_key] = {"data": data, "ts": time.time()}
         return data, None
@@ -1635,7 +1643,6 @@ def fund_lof_hist(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={"error": "该接口返回数据为空"},
             )
-        temp_df = received_df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         logger.error(f"LOF 历史重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
         return JSONResponse(
@@ -1648,7 +1655,7 @@ def fund_lof_hist(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={"error": f"数据接口调用异常: {e}"},
         )
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
 
 @app_core.get(
@@ -1708,7 +1715,6 @@ def fund_open_hist(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={"error": "该接口返回数据为空"},
             )
-        temp_df = received_df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         logger.error(f"场外基金历史重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
         return JSONResponse(
@@ -1721,7 +1727,7 @@ def fund_open_hist(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={"error": f"数据接口调用异常: {e}"},
         )
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
 
 @app_core.get(
@@ -1843,12 +1849,11 @@ def stock_hk_hist(
         df = _call_akshare_direct(sc["func"], symbol=symbol, start_date=start_date, end_date=end_date, adjust=adjust)
         if df is None:
             return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
-        temp_df = df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
     except Exception as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(df), media_type="application/json")
 
 
 @app_core.get(
@@ -1904,12 +1909,11 @@ def futures_hist(
         df = _call_akshare_direct(ak.futures_global_hist_em, symbol=symbol, start_date=start_date, end_date=end_date)
         if df is None:
             return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
-        temp_df = df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
     except Exception as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(df), media_type="application/json")
 
 
 @app_core.get(
@@ -1976,12 +1980,11 @@ def index_hist(
         df = _call_akshare_direct(sc["func"], symbol=symbol)
         if df is None:
             return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
-        temp_df = df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
     except Exception as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(df), media_type="application/json")
 
 
 @app_core.get(
@@ -2057,12 +2060,11 @@ def bond_cov_hist(symbol: str = Query(..., description="可转债代码，如 sh
         df = _call_akshare_direct(sc["func"], symbol=symbol)
         if df is None:
             return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
-        temp_df = df.to_json(orient="records", date_format="iso")
     except (RequestsConnectionError, RequestsTimeout) as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败"})
     except Exception as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
-    return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+    return Response(content=_df_to_json_bytes(df), media_type="application/json")
 
 
 @app_core.get(
@@ -2144,7 +2146,6 @@ def root(request: Request, item_id: str):
                     status_code=status.HTTP_404_NOT_FOUND,
                     content={"error": "该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz"},
                 )
-            temp_df = received_df.to_json(orient="records", date_format="iso")
         except KeyError as e:
             logger.info(
                 f"请输入正确的参数错误 {e}，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz")
@@ -2171,7 +2172,7 @@ def root(request: Request, item_id: str):
                 },
             )
         logger.info(f"获取到 {item_id} 的数据")
-        return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+        return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
     else:
         try:
             received_df = _call_akshare(item_id, eval_str)
@@ -2181,7 +2182,6 @@ def root(request: Request, item_id: str):
                     status_code=status.HTTP_404_NOT_FOUND,
                     content={"error": "该接口返回数据为空，请确认参数是否正确：https://akshare.akfamily.xyz"},
                 )
-            temp_df = received_df.to_json(orient="records", date_format="iso")
         except KeyError as e:
             logger.info(
                 f"请输入正确的参数错误 {e}，请升级 AKShare 到最新版本并在文档中确认该接口的使用方式：https://akshare.akfamily.xyz")
@@ -2208,7 +2208,7 @@ def root(request: Request, item_id: str):
                 },
             )
         logger.info(f"获取到 {item_id} 的数据")
-        return JSONResponse(status_code=status.HTTP_200_OK, content=json.loads(temp_df))
+        return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
 
 def generate_html_response():
