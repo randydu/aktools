@@ -716,6 +716,21 @@ curl -H "Authorization: Bearer akt_..." \
 
 ---
 
+## 响应压缩
+
+AKTools 支持 gzip 压缩：客户端在请求头中发送 `Accept-Encoding: gzip`，服务器自动压缩响应体（>1KB 的 JSON 响应），压缩率约 80-90%。客户端无需发送该头则返回原始 JSON，完全向后兼容。
+
+```sh
+# 压缩响应（体积缩减 80-90%）
+curl -H "Accept-Encoding: gzip" "http://127.0.0.1:8080/api/public/v1/stock_cn_spot"
+
+# 原始 JSON（无压缩）
+curl "http://127.0.0.1:8080/api/public/v1/stock_cn_spot"
+```
+
+常用 HTTP 客户端（`reqwest`、`axios`、`fetch`、浏览器）默认自动请求并解压 gzip 响应，应用层无需改动代码。
+
+---
 
 ## 配置
 

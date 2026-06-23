@@ -148,10 +148,16 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). Restored
 | `end_date` | varies | YYYYMMDD or datetime |
 | `adjust` | `""` | `""`/`qfq`/`hfq` |
 
+## Compression
+
+All JSON responses >1KB are gzip-compressed when the client sends `Accept-Encoding: gzip` (80-90% smaller). Most HTTP clients (browsers, reqwest, axios, fetch) do this by default — no code changes needed. Clients that don't send the header receive uncompressed JSON (fully backward compatible).
+
 ## Response Headers
 
 | Header | When |
 |---|---|
+| `Content-Encoding` | `gzip` when compressed |
+| `Vary` | `Accept-Encoding` on compressible responses |
 | `X-Total-Count` | List, search |
 | `X-Cache-Age` | Spot, cached |
 | `X-Cache-Stale` | Spot >120s during market hours |
