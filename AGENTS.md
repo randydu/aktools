@@ -52,7 +52,7 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). Restored
 |---|---|---|---|
 | `/api/public/v1/stock_us_list` | GET | Daily, paginated | `page`, `page_size` |
 | `/api/public/v1/stock_us_spot` | GET | 60s | `symbol`(optional filter) |
-| `/api/public/v1/stock_us_hist` | GET | On-demand | `symbol`(req), `source`(eastmoney/sina), `start_date`, `end_date`, `adjust` |
+| `/api/public/v1/stock_us_hist` | GET | On-demand | `symbol`(req), `source`(eastmoney/sina), `start_date`(eastmoney only), `end_date`(eastmoney only), `adjust` |
 | `/api/public/v1/stock_us_search` | GET | Cached | `q`(req), `limit`(20, 0=all) |
 
 ### HK Stocks
@@ -61,7 +61,7 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). Restored
 |---|---|---|---|
 | `/api/public/v1/stock_hk_list` | GET | Daily, paginated | `page`, `page_size` |
 | `/api/public/v1/stock_hk_spot` | GET | 60s, fallback | `source`(eastmoney/sina), `symbol`(optional filter) |
-| `/api/public/v1/stock_hk_hist` | GET | On-demand | `symbol`(req), `source`, `start_date`, `end_date`, `adjust` |
+| `/api/public/v1/stock_hk_hist` | GET | On-demand | `symbol`(req), `source`(eastmoney/sina), `start_date`(eastmoney only), `end_date`(eastmoney only), `adjust` |
 | `/api/public/v1/stock_hk_search` | GET | Cached | `q`(req), `limit`(20, 0=all) |
 
 ### Funds & ETFs
@@ -70,7 +70,7 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). Restored
 |---|---|---|---|
 | `/api/public/v1/fund_list` | GET | Daily, paginated | `page`, `page_size` (all fund types) |
 | `/api/public/v1/fund_etf_spot` | GET | 60s | `symbol`(optional filter) |
-| `/api/public/v1/fund_etf_hist` | GET | On-demand | `symbol`(req), `source`(eastmoney/sina), `start_date`, `end_date`, `adjust` |
+| `/api/public/v1/fund_etf_hist` | GET | On-demand | `symbol`(req), `source`(eastmoney/sina), `start_date`(eastmoney only), `end_date`(eastmoney only), `adjust`(eastmoney only) |
 | `/api/public/v1/fund_etf_hist_intraday` | GET | On-demand | `symbol`(req), `period`(1/5/15/30/60), `start_date`, `end_date`, `adjust` |
 | `/api/public/v1/fund_lof_spot` | GET | 60s | `symbol`(optional filter) |
 | `/api/public/v1/fund_lof_hist` | GET | On-demand | `symbol`(req), `period`(daily/weekly/monthly), `start_date`, `end_date`, `adjust` |

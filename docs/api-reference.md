@@ -228,9 +228,11 @@ curl "http://127.0.0.1:8080/api/public/stock_hk_daily?symbol=00700&start_date=20
 | ----- | :---: | ----- | ----- |
 | `symbol` | 是 | — | 港股代码，如 `00700` |
 | `source` | 否 | `eastmoney` | `eastmoney` / `sina` |
-| `start_date` | 否 | `19700101` | 开始日期 YYYYMMDD |
-| `end_date` | 否 | `22220101` | 结束日期 YYYYMMDD |
+| `start_date` | 否 | `19700101` | 开始日期 YYYYMMDD（仅 eastmoney） |
+| `end_date` | 否 | `22220101` | 结束日期 YYYYMMDD（仅 eastmoney） |
 | `adjust` | 否 | `""` | 复权类型 |
+
+> **注意**: `start_date` / `end_date` 仅在 `source=eastmoney` 时生效。`source=sina` 返回全部历史数据，不支持日期过滤。
 
 ---
 
@@ -275,9 +277,11 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_us_spot?symbol=AAPL"
 | ----- | :---: | ----- | ----- |
 | `symbol` | 是 | — | 美股代码，如 `AAPL` 或 `105.MSFT` |
 | `source` | 否 | `eastmoney` | `eastmoney` / `sina` |
-| `start_date` | 否 | `19700101` | 开始日期 YYYYMMDD |
-| `end_date` | 否 | `22220101` | 结束日期 YYYYMMDD |
+| `start_date` | 否 | `19700101` | 开始日期 YYYYMMDD（仅 eastmoney） |
+| `end_date` | 否 | `22220101` | 结束日期 YYYYMMDD（仅 eastmoney） |
 | `adjust` | 否 | `""` | 复权类型 |
+
+> **注意**: `start_date` / `end_date` 仅在 `source=eastmoney` 时生效。`source=sina` 返回全部历史数据，不支持日期过滤。
 
 ```sh
 # Sina 源（简洁代码）
@@ -485,9 +489,11 @@ curl "http://127.0.0.1:8080/api/public/v1/fund_etf_spot?symbol=159915"
 | ----- | :---: | ----- | ----- |
 | `symbol` | 是 | — | ETF 代码，如 `159915` 或 `sh510050` |
 | `source` | 否 | `eastmoney` | `eastmoney` / `sina` |
-| `start_date` | 否 | `19700101` | 开始日期 YYYYMMDD |
-| `end_date` | 否 | `20500101` | 结束日期 YYYYMMDD |
-| `adjust` | 否 | `""` | 复权类型 |
+| `start_date` | 否 | `19700101` | 开始日期 YYYYMMDD（仅 eastmoney） |
+| `end_date` | 否 | `20500101` | 结束日期 YYYYMMDD（仅 eastmoney） |
+| `adjust` | 否 | `""` | 复权类型（仅 eastmoney） |
+
+> **注意**: `start_date` / `end_date` / `adjust` 仅在 `source=eastmoney` 时生效。`source=sina` 返回全部历史数据，不支持过滤。
 
 ### ETF 分时行情
 
