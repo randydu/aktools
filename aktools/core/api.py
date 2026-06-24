@@ -4,6 +4,7 @@
 Date: 2024/1/12 22:05
 Desc: HTTP 模式主文件
 """
+import inspect as _inspect
 import json
 import logging
 
@@ -452,7 +453,13 @@ def _call_akshare(item_id: str, eval_str: str):
 
 
 def _call_akshare_direct(func, **kwargs):
-    """Call an AKShare function directly with retry."""
+    """Call an AKShare function directly with retry.
+    Filters kwargs to only parameters the function actually accepts,
+    so source-dependent params (e.g. start_date for sina) are silently dropped.
+    """
+    _accepted = set(_inspect.signature(func).parameters.keys())
+    if _accepted:
+        kwargs = {k: v for k, v in kwargs.items() if k in _accepted}
     for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
         try:
             return func(**kwargs)
