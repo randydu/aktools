@@ -13,6 +13,13 @@
 
 ## 开发进度
 
+0.1.7: fix: kwargs filtering + comprehensive parameter docs audit
+    1. 修复 _call_akshare_direct 在 sina 源下传递不支持的参数导致 502 的问题
+    2. 交叉审计 25 个 V1 接口参数，对照 AKShare 上游函数签名和文档
+    3. 修复 fund_open_hist 缺少 6 个 period 取值
+    4. 标注 stock_hk_hist / stock_us_hist / fund_etf_hist 的 source 相关参数限制
+    5. 丰富 AGENTS.md 和 api-reference.md 参数表（adjust 可选值、代码获取提示）
+
 0.1.6: add: gzip compression + orjson serialization + RTK integration
     1. 新增 gzip 响应压缩（Accept-Encoding: gzip → 80-90% 体积缩减，向后兼容）
     2. 以 orjson 单次序列化替代 pandas to_json → json.loads → JSONResponse 双重序列化（26 处）

@@ -1,5 +1,19 @@
 # ChangeLog
 
+## 0.1.7
+
+### Fixed
+
+- `_call_akshare_direct` now filters kwargs to only what the target AKShare function accepts — fixes `TypeError` → 502 when calling `stock_hk_hist`, `stock_us_hist`, or `fund_etf_hist` with `source=sina` and unsupported params (`start_date`/`end_date`)
+
+### Docs
+
+- Cross-referenced all V1 endpoint parameters against upstream AKShare function signatures (`inspect.signature` + docstrings) — 25 endpoints audited
+- Fixed `fund_open_hist` period parameter docs: was missing 6 of 12 accepted values (`1月`, `3月`, `6月`, `1年`, `3年`, `5年`)
+- Added source-dependent param notes to `stock_hk_hist`, `stock_us_hist`, `fund_etf_hist` — `start_date`/`end_date`/`adjust` only work with `source=eastmoney`
+- Enriched `AGENTS.md` with `adjust` choices (`""`/`qfq`/`hfq`) and symbol discovery hints for futures/index/bond_cov
+- Enriched `api-reference.md` parameter tables with AKShare-sourced defaults and accepted values
+
 ## 0.1.6
 
 ### Added
