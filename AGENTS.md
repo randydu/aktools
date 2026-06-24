@@ -76,7 +76,7 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). Restored
 | `/api/public/v1/fund_lof_hist` | GET | On-demand | `symbol`(req), `period`(daily/weekly/monthly), `start_date`, `end_date`, `adjust` |
 | `/api/public/v1/fund_lof_hist_intraday` | GET | On-demand | `symbol`(req), `period`(1/5/15/30/60), `start_date`, `end_date`, `adjust` |
 | `/api/public/v1/fund_open_list` | GET | Daily, paginated | `page`, `page_size` |
-| `/api/public/v1/fund_open_hist` | GET | On-demand | `symbol`(req), `indicator`(单位净值走势/累计净值走势), `period`(成立来/近1年等) |
+| `/api/public/v1/fund_open_hist` | GET | On-demand | `symbol`(req), `indicator`(单位净值走势/累计净值走势), `period`(1月/近1月, 3月/近3月, 6月/近6月, 1年/近1年, 3年, 5年, 今年来, 成立来) |
 | `/api/public/v1/fund_search` | GET | Cached | `q`(req), `limit`(20, 0=all) (all funds) |
 | `/api/public/v1/fund_open_search` | GET | Cached | `q`(req), `limit`(20, 0=all) (open-end only) |
 

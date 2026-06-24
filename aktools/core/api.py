@@ -1703,7 +1703,7 @@ def fund_open_list_cached(
 def fund_open_hist(
     symbol: str = Query(..., description="基金代码，如 710001"),
     indicator: str = Query("单位净值走势", description="指标: 单位净值走势 / 累计净值走势"),
-    period: str = Query("成立来", description="周期: 成立来 / 近1年 / 近6月 / 近3月 / 近1月"),
+    period: str = Query("成立来", description="周期: 1月/近1月, 3月/近3月, 6月/近6月, 1年/近1年, 3年, 5年, 今年来, 成立来"),
 ):
     try:
         received_df = _call_akshare_direct(
