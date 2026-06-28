@@ -36,10 +36,26 @@
 - `index_hist` — auto-source and normalization not applied. Eastmoney and sina serve non-overlapping markets (Chinese vs global indices), making the `source` parameter a genuine market selector rather than a redundancy mechanism. `X-Market-Source` header added.
 - `stock_cn_spot` / `stock_hk_spot` — auto-source not applied at request level. These are cache-based; auto-source at the cache layer is planned for a future release.
 
+### Fixed
+
+- **cache.db always empty:** `_persist_cache_to_db` used `json.dumps()` which rejected numpy types (`int64`, `float64`, `NaN`) from `df.to_dict(orient="records")`. Switched to `orjson.dumps()` with `OPT_SERIALIZE_NUMPY`. The `TypeError` was previously silently swallowed by `except: pass`.
+- **cache.db not persisted on short runs / restarts:** spot caches were only persisted at cycle end, after the 5–15 minute `_build_stock_profile()`. Added early persist after spot refresh phase (~2 min) so spot data survives restarts even if the build hasn't completed.
+- **List caches (stock_cn_list, fund_list, etc.) never persisted on cycle 1:** same root cause — lists were populated before `_build_stock_profile()` in the static phase but persisted only at cycle end. Added persist right before the slow build starts.
+- **Circuit breaker fired on empty data:** auto-source refactor treated empty DataFrame returns (source working but no data for query) as failures via `ValueError` → `_record_source_failure`. After 2 empty-data results, all sources entered 60s cooldown simultaneously. Added `EmptyDataError` — distinct from real failures, does not count against the circuit breaker. Explicit-source paths now return 404 (not 502) for empty data.
+- **`logger` NameError in daemon thread:** logger was defined at L872 but `_refresh_thread.start()` ran at L810 — daemon thread could race ahead before `logger` existed. Moved logger setup above thread start.
+- **Progress bars had no context:** AKShare tqdm progress bars rendered without any description. Added `logger.info("正在刷新: ...")` before every cache refresh call and `logger.info("正在获取数据: <func>")` in `_call_akshare_direct`.
+- **`tokens.db` write failure → 500 on every authenticated request:** `TokenStore.validate()` attempted to update `last_used` on every auth check without error handling. Now best-effort — auth succeeds even on read-only tokens.db. `_bootstrap()` import failures log warning instead of crashing.
+- **`cache.db` write failure silently swallowed:** `_persist_cache_to_db` had `except Exception: pass`. Now logs warning with the error.
+- **`docker-build.sh` hardcoded `latest` tag** — now reads latest git tag via `git describe --tags --abbrev=0`.
+- **`stock_cn_spot` fallback cache source name** fixed (`"stock_cn_spot_eastmoney"` → `"eastmoney"`) for correct `X-Market-Source` header.
+- **`aktools.__version__` was `0.1.7`** — bumped to `0.2.0` to match latest git tag. `setup.py` reads version from `__init__.py`.
+
 ### Design
 
 - All normalize maps derived from real data comparison (see `docs/unified-interface-distillation.md`), not from column name assumptions. The stock_cn_hist experience (Tencent `amount` = volume-in-lots, not 成交额) informed the methodology: always verify column semantics against cross-source samples.
 - Per-endpoint circuit breaker isolation prevents one endpoint's source failures from affecting another — each category has independent health tracking.
+- Cache persistence now has three save points per cycle: after spot refresh (~2 min), before `_build_stock_profile` (~30s, saves lists), and at cycle end (saves all). This ensures no cache type is held hostage by the slowest builder.
+- `EmptyDataError` vs real failures — circuit breaker only reacts to genuine errors (network, timeout), not to "no data for this symbol."
 
 ## 0.1.8
 
