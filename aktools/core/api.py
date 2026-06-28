@@ -841,6 +841,14 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+# ── 启动横幅（分隔不同进程的日志） ────────────────────────────
+logger.info("=" * 60)
+logger.info(f" AKTools 启动 — {datetime.now(timezone.utc).isoformat()}")
+logger.info(f" 数据目录: {_DATA_DIR}")
+logger.info(f" 默认数据源: {DEFAULT_SOURCE}")
+logger.info(f" 日志级别: {_LOG_LEVEL}")
+logger.info("=" * 60)
+
 # 启动时从 SQLite 恢复缓存（若有），避免冷启动等待
 _restored = _load_cache_from_db()
 if _restored:
