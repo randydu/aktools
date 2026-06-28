@@ -1,5 +1,31 @@
 # ChangeLog
 
+## 0.1.8
+
+### Added
+
+- `stock_cn_hist` 6-field unified schema: `date, open, high, low, close, volume` — zero nulls across all three sources (eastmoney/sina/tencent). Source-only fields (stock_code, amount, amplitude, pct_change, change, turnover_rate, outstanding_share) dropped — maximum shared subset pattern.
+- Auto source selection (`source=auto`, now the default): priority chain eastmoney → tencent → sina with circuit breaker (2 consecutive failures → 60s cooldown). Explicit `source=eastmoney` bypasses breaker.
+- `X-Market-Source` response header on all successful `stock_cn_hist` responses — clients can see which source served the data.
+- CodeGraph MCP server (`@colbymchenry/codegraph`) — semantic code knowledge graph, 358 nodes / 689 edges indexed for this project.
+- Memory, Everything, Filesystem, Puppeteer MCP servers installed.
+
+### Fixed
+
+- `stock_cn_hist` Tencent source: `amount` column correctly identified as volume-in-lots (not 成交额), now mapped to `volume` ×100. Previously was passed through as-is, causing cross-source field mismatch.
+- `stock_cn_hist` eastmoney volume: 手→股 conversion (×100) now applied in normalization layer — was missing before 0.1.7 normalize map was added.
+
+### Changed
+
+- `DEFAULT_SOURCE` default changed from `eastmoney` → `auto`. Deployments auto-select the best reachable source without client configuration.
+- `_HIST_NORMALIZE_MAP` trimmed from 12 fields (with 5–7 nulls per source) to 6 fields (zero nulls).
+- `docs/source-differences.md` added — full per-source column mapping, Tencent `amount` caveat, auto source + circuit breaker docs.
+- `docs/v1-api.md` updated: `auto` source, 6-field output schema, `X-Market-Source` header.
+
+### Design
+
+- Unified API design pattern established: (1) maximum shared subset of fields, (2) auto source selection as default, (3) `X-Market-Source` response header. Persisted in `unified-interface-pattern` project memory for future endpoints.
+
 ## 0.1.7
 
 ### Fixed

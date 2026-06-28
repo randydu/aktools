@@ -9,7 +9,7 @@ AKTools v0.1.3 — 44 endpoints across 10 categories, smart caching, multi-sourc
 | 变量 | 用途 | 默认值 |
 | ----- | ----- | ----- |
 | `AKSHARE_PROXY` | HTTP/HTTPS 代理地址 | 无 |
-| `AKSHARE_DEFAULT_SOURCE` | 默认数据源 | `eastmoney` |
+| `AKSHARE_DEFAULT_SOURCE` | 默认数据源 | `auto` |
 | `AKTOOLS_TOKENS_FILE` | 预配置 Token JSON 文件路径 | 无 |
 | `AKTOOLS_DATA_DIR` | 持久化数据目录 | `./data/` |
 | `AKTOOLS_LOG_LEVEL` | 日志级别 | `INFO` |
@@ -43,10 +43,14 @@ AKTools v0.1.3 — 44 endpoints across 10 categories, smart caching, multi-sourc
 | 参数 | 默认值 | 说明 |
 | ----- | ----- | ----- |
 | `symbol` | (必填) | 如 `600000` 或 `sh600000` |
-| `source` | `eastmoney` | `eastmoney` / `sina` / `tencent` |
+| `source` | `auto` | `eastmoney` / `sina` / `tencent` / `auto` |
 | `start_date` | `19900101` | |
 | `end_date` | `20500101` | |
 | `adjust` | `""` | `qfq` / `hfq` |
+
+> `source=auto` 按优先级自动选择可用数据源，含熔断保护。详见[数据源差异与归一化](source-differences.md)。
+>
+> 统一输出 6 字段：`date`, `open`, `high`, `low`, `close`, `volume`（成交量单位：股）。
 
 ### 分时行情
 
