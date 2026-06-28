@@ -402,12 +402,24 @@ class AutoSourceExhaustedError(Exception):
         )
 
 
+class EmptyDataError(Exception):
+    """A source returned empty data — not a failure, just no data for this query.
+
+    Distinguished from real failures (network errors, timeouts) so the
+    circuit breaker doesn't penalize sources that are working but have
+    no data for a particular symbol / date range.
+    """
+
+
 def _try_auto_sources(category: str, try_source: "callable"):
     """Try sources in priority order with circuit breaker.
 
     Args:
         category: key into _AUTO_SOURCE_PRIORITY dict.
         try_source: callable(src) -> DataFrame. Must raise on failure.
+                    Raise EmptyDataError if the source works but returns
+                    no data — this skips the source without recording a
+                    circuit-breaker failure.
 
     Returns:
         (DataFrame, actual_source_name)
@@ -431,6 +443,10 @@ def _try_auto_sources(category: str, try_source: "callable"):
             _record_source_success(category, src)
             logger.info(f"auto({category}): 选中数据源 {src}")
             return df, src
+        except EmptyDataError:
+            logger.info(f"auto({category}): {src} 返回空数据，尝试下一个")
+            sources_tried.append(src)
+            # NOT a circuit-breaker failure — source is working, just no data
         except Exception as e:
             logger.warning(f"auto({category}): {src} 失败: {e}")
             _record_source_failure(category, src)
@@ -447,6 +463,8 @@ def _try_auto_sources(category: str, try_source: "callable"):
             _record_source_success(category, src)
             logger.info(f"auto({category}): 冷却源 {src} 恢复，选中")
             return df, src
+        except EmptyDataError:
+            sources_tried.append(src)
         except Exception as e:
             sources_tried.append(src)
             last_error = e
@@ -1067,7 +1085,7 @@ def stock_cn_hist(
             adjust=adjust,
         )
         if received_df is None:
-            raise ValueError(f"{src} 返回空数据")
+            raise EmptyDataError(f"{src} 返回空数据")
         return _normalize_stock_hist(received_df, src)
 
     try:
@@ -1116,7 +1134,7 @@ def stock_cn_hist_intraday(
             kwargs["end_date"] = end_date
         df = _call_akshare_direct(sc["func"], **kwargs)
         if df is None:
-            raise ValueError(f"{src} 返回空数据")
+            raise EmptyDataError(f"{src} 返回空数据")
         return _normalize_df(df, src, _INTRADAY_NORMALIZE_MAP)
 
     # ── 显式数据源 ──────────────────────────────────────────
@@ -1129,6 +1147,11 @@ def stock_cn_hist_intraday(
             )
         try:
             received_df = _try_intraday(source)
+        except EmptyDataError:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "该接口返回数据为空，请确认参数是否正确"},
+            )
         except (RequestsConnectionError, RequestsTimeout) as e:
             return JSONResponse(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -1500,7 +1523,7 @@ def fund_etf_hist_universal(
             start_date=start_date, end_date=end_date, adjust=adjust,
         )
         if df is None:
-            raise ValueError(f"{src} 返回空数据")
+            raise EmptyDataError(f"{src} 返回空数据")
         return _normalize_df(df, src, _FUND_ETF_HIST_NORMALIZE_MAP)
 
     # ── 显式数据源 ──────────────────────────────────────────
@@ -1513,6 +1536,11 @@ def fund_etf_hist_universal(
             )
         try:
             received_df = _try_fund_etf_hist(source)
+        except EmptyDataError:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "该接口返回数据为空，请确认参数是否正确"},
+            )
         except (RequestsConnectionError, RequestsTimeout) as e:
             return JSONResponse(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -1656,7 +1684,7 @@ def stock_us_hist_universal(
             start_date=start_date, end_date=end_date, adjust=adjust,
         )
         if df is None:
-            raise ValueError(f"{src} 返回空数据")
+            raise EmptyDataError(f"{src} 返回空数据")
         return _normalize_df(df, src, _US_HIST_NORMALIZE_MAP)
 
     # ── 显式数据源 ──────────────────────────────────────────
@@ -1669,6 +1697,11 @@ def stock_us_hist_universal(
             )
         try:
             received_df = _try_us_hist(source)
+        except EmptyDataError:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "该接口返回数据为空，请确认参数是否正确"},
+            )
         except (RequestsConnectionError, RequestsTimeout) as e:
             return JSONResponse(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -2346,7 +2379,7 @@ def stock_hk_hist(
             start_date=start_date, end_date=end_date, adjust=adjust,
         )
         if df is None:
-            raise ValueError(f"{src} 返回空数据")
+            raise EmptyDataError(f"{src} 返回空数据")
         return _normalize_df(df, src, _HK_HIST_NORMALIZE_MAP)
 
     # ── 显式数据源 ──────────────────────────────────────────
@@ -2358,6 +2391,11 @@ def stock_hk_hist(
             )
         try:
             df = _try_hk_hist(source)
+        except EmptyDataError:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": "数据为空"},
+            )
         except (RequestsConnectionError, RequestsTimeout) as e:
             return JSONResponse(
                 status_code=status.HTTP_502_BAD_GATEWAY,
