@@ -601,6 +601,10 @@ def _persist_cache_to_db():
                 "CREATE TABLE IF NOT EXISTS persisted_cache "
                 "(key TEXT PRIMARY KEY, data TEXT, ts REAL)"
             )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS cache_metadata "
+                "(key TEXT PRIMARY KEY, value TEXT)"
+            )
             conn.execute("BEGIN IMMEDIATE")
             for key, entry in _spot_cache.items():
                 # Use orjson to handle numpy types (int64, float64, NaN)
@@ -614,6 +618,12 @@ def _persist_cache_to_db():
                     "INSERT OR REPLACE INTO persisted_cache VALUES (?, ?, ?)",
                     (key, data_json, entry["ts"]),
                 )
+            # Persist metadata for restart-aware scheduling
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "INSERT OR REPLACE INTO cache_metadata VALUES (?, ?)",
+                ("last_persist", now_iso),
+            )
             conn.commit()
             conn.close()
         except Exception as e:
@@ -621,18 +631,37 @@ def _persist_cache_to_db():
 
 
 def _load_cache_from_db():
-    """Restore cache from SQLite on startup."""
+    """Restore cache from SQLite on startup.
+    
+    Returns (restored: bool, last_persist_ts: float | None).
+    last_persist_ts is the UTC timestamp of the most recent persist.
+    """
     _log = logging.getLogger("AKToolsLog")
     if not os.path.exists(_CACHE_DB):
         _log.info(f"cache.db 不存在 ({_CACHE_DB})，跳过恢复")
-        return False
+        return False, None
     try:
         conn = _sqlite3.connect(_CACHE_DB)
         conn.execute(
             "CREATE TABLE IF NOT EXISTS persisted_cache "
             "(key TEXT PRIMARY KEY, data TEXT, ts REAL)"
         )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cache_metadata "
+            "(key TEXT PRIMARY KEY, value TEXT)"
+        )
         rows = conn.execute("SELECT key, data, ts FROM persisted_cache").fetchall()
+        # Read metadata
+        meta_row = conn.execute(
+            "SELECT value FROM cache_metadata WHERE key = 'last_persist'"
+        ).fetchone()
+        last_persist_ts = None
+        if meta_row:
+            try:
+                last_persist_dt = datetime.fromisoformat(meta_row[0])
+                last_persist_ts = last_persist_dt.timestamp()
+            except (ValueError, TypeError):
+                pass
         conn.close()
         if rows:
             # 迁移旧 cache key → 新命名（stock_list → stock_cn_list 等）
@@ -646,13 +675,13 @@ def _load_cache_from_db():
                     target_key = _key_map.get(key, key)
                     _spot_cache[target_key] = {"data": json.loads(data_json), "ts": ts}
             _log.info(f"从 cache.db 恢复了 {len(rows)} 个缓存项")
-            return True
+            return True, last_persist_ts
         else:
             _log.info("cache.db 存在但无缓存项")
-            return False
+            return False, None
     except Exception as e:
         _log.warning(f"从 cache.db 恢复失败: {e}")
-        return False
+        return False, None
 
 # A 股交易时段 (北京时间)
 _MARKET_SESSIONS = [
@@ -677,6 +706,30 @@ def _refresh_cache():
     """Daemon thread: periodically refresh cached data (market-aware, pausable)."""
     cycle = 0
     _static_interval = max(1, _STATIC_CACHE_TTL // _CACHE_TTL)
+
+    # 如果从 cache.db 恢复了数据，估算已过去的周期数，避免不必要的静态刷新
+    _next_static_cycle = 0  # 冷启动：立即运行静态刷新
+    if _last_persist_ts is not None:
+        _elapsed = time.time() - _last_persist_ts
+        _estimated_cycles = int(_elapsed / _CACHE_TTL)
+        if _estimated_cycles > 0:
+            cycle = _estimated_cycles
+            logger.info(
+                f"恢复周期计数: 距上次持久化 {_elapsed:.0f}s，"
+                f"估算已过 {_estimated_cycles} 个周期"
+            )
+        # 计算下一次静态刷新应发生的周期
+        _next_static_cycle = cycle + max(1, _static_interval - (cycle % _static_interval))
+        if _elapsed < _STATIC_CACHE_TTL:
+            # 静态数据仍新鲜，跳过本次，等待下一个 _static_interval 边界
+            _next_static_cycle = cycle + _static_interval - (cycle % _static_interval)
+            if _next_static_cycle == cycle:
+                _next_static_cycle += _static_interval
+            logger.info(
+                f"上次静态刷新距今 {_elapsed:.0f}s（< {_STATIC_CACHE_TTL}s），"
+                f"延至周期 {_next_static_cycle}"
+            )
+
     while True:
         # 检查全局暂停
         with _paused_lock:
@@ -790,8 +843,8 @@ def _refresh_cache():
         # 持久化实时行情（不等慢速静态数据 — 避免 _build_stock_profile 阻塞）
         _persist_cache_to_db()
 
-        # 静态数据仅在启动或每 _static_interval 个周期刷新
-        if cycle == 1 or cycle % _static_interval == 0:
+        # 静态数据按计划刷新（恢复时跳过新鲜数据，减少 API 调用）
+        if cycle >= _next_static_cycle:
             for key, func in _STATIC_CACHE_MAP.items():
                 try:
                     logger.info(f"正在刷新: 静态数据 {key} ...")
@@ -817,6 +870,7 @@ def _refresh_cache():
                 except Exception as e:
                     logger.warning(f"刷新缓存失败 [{key}]: {e}")
                     failed += 1
+            _next_static_cycle = cycle + _static_interval
         if cycle == 1:
             _spot_cache_warm.set()
         elapsed = int((time.time() - cycle_start) * 1000)
@@ -852,10 +906,19 @@ logger.info(f" 日志级别: {_LOG_LEVEL}")
 logger.info("=" * 60)
 
 # 启动时从 SQLite 恢复缓存（若有），避免冷启动等待
-_restored = _load_cache_from_db()
+_restored, _last_persist_ts = _load_cache_from_db()
 if _restored:
     _spot_cache_warm.set()  # 恢复后可立即服务
-    logger.info("缓存已从磁盘恢复，预热完成")
+    if _last_persist_ts:
+        _elapsed = time.time() - _last_persist_ts
+        logger.info(
+            f"缓存已从磁盘恢复，预热完成 "
+            f"(上次持久化: {_elapsed:.0f}s 前)"
+        )
+    else:
+        logger.info("缓存已从磁盘恢复，预热完成")
+else:
+    _last_persist_ts = None  # 无历史持久化
 
 _refresh_thread = threading.Thread(target=_refresh_cache, daemon=True)
 _refresh_thread.start()
