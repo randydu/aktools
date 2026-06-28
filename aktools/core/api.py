@@ -769,6 +769,9 @@ def _refresh_cache():
                 logger.warning(f"刷新缓存失败 [bond_cov_spot]: {e}")
                 failed += 1
 
+        # 持久化实时行情（不等慢速静态数据 — 避免 _build_stock_profile 阻塞）
+        _persist_cache_to_db()
+
         # 静态数据仅在启动或每 _static_interval 个周期刷新
         if cycle == 1 or cycle % _static_interval == 0:
             for key, func in _STATIC_CACHE_MAP.items():
