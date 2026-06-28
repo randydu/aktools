@@ -1,5 +1,46 @@
 # ChangeLog
 
+## 0.2.0
+
+### Added
+
+- **Unified interface for all 7 multi-source endpoints.** Every endpoint accepting `source` now returns a consistent schema regardless of which source served the data — maximum shared subset, zero nulls. Normalize maps defined from real cross-source data sampling (not column name matching).
+- **Auto source selection (`source=auto`) on 5 hist endpoints:** `stock_cn_hist_intraday`, `fund_etf_hist`, `stock_us_hist`, `stock_hk_hist`, `stock_cn_hist` (refactored). Each has its own priority chain with independent circuit breaker state. Priority: eastmoney → sina (→ tencent for cn_hist).
+- **`X-Market-Source` response header** on all 8 multi-source endpoints — clients can identify which source served the data. Critical for `auto` mode where the client doesn't choose.
+- **Chinese→English column name normalization for spot endpoints:**
+  - `stock_cn_spot`: 中文→English 11-field schema (`代码→code`, `名称→name`, `最新价→latest`, `涨跌幅→change_pct`, `涨跌额→change_amt`, `成交量→volume`, `成交额→amount`, `昨收→prev_close`, `今开→open`, `最高→high`, `最低→low`)
+  - `stock_hk_spot`: 10-field schema (same minus `name` — eastmoney/sina name fields differ)
+- **Normalize maps for 4 hist endpoints** (`stock_cn_hist_intraday`, `fund_etf_hist`, `stock_us_hist`, `stock_hk_hist`) — all sharing the same 6-field OHLCV core (`date/time, open, high, low, close, volume`) as `stock_cn_hist`.
+- **`docs/unified-interface-distillation.md`** — full technical reference: per-endpoint source field inventories, normalize maps, fields-dropped rationale, auto-source priority chains, cross-source gotchas (Tencent `amount` misname, sina prefix requirements, index non-overlap, etc.).
+- **`var/sample_sources.py`** — sampling script that calls every source function with representative symbols and dumps column names + sample rows. Re-runnable after AKShare upgrades to validate normalize maps.
+- **`AGENTS.md`** updated with `auto` source semantics, `X-Market-Source` header, normalized field schemas, and full Chinese→English spot column mappings with per-source fields-dropped lists.
+- **Infrastructure:**
+  - `_try_auto_sources(category, try_func)` — reusable auto-source helper with priority-then-cooldown-retry loop
+  - `AutoSourceExhaustedError` — raised when all sources in a category fail
+  - `_normalize_df(df, source, mapping)` — generalized DataFrame normalizer accepting explicit mapping
+  - `_normalize_records(records, source, mapping)` — list-of-dicts normalizer for spot/cached data
+  - `_source_health` keyed by `"category:source"` for per-endpoint circuit breaker isolation
+- **`docs/v1-api.md`** updated: normalized response field tables for all multi-source endpoints, `auto` source option throughout, `index_hist` non-normalization note.
+
+### Changed
+
+- `_AUTO_SOURCE_PRIORITY` — from flat list to dict keyed by category (`cn_hist`, `cn_intraday`, `fund_etf_hist`, `us_hist`, `hk_hist`)
+- `_source_in_cooldown`, `_record_source_success`, `_record_source_failure` — all take `(category, src)` now
+- `_normalize_stock_hist` — refactored to delegate to generalized `_normalize_df` (backward compatible)
+- `stock_cn_hist` — inline auto loop replaced with `_try_auto_sources("cn_hist", ...)` call, functionally identical
+- `stock_cn_hist_intraday` — sina→eastmoney date fallback subsumed by auto-source; now returns normalized 6-field output
+- `stock_cn_spot` — fallback cache source name extraction fixed (`"stock_cn_spot_eastmoney"` → `"eastmoney"`); output now English-named columns
+
+### Skipped
+
+- `index_hist` — auto-source and normalization not applied. Eastmoney and sina serve non-overlapping markets (Chinese vs global indices), making the `source` parameter a genuine market selector rather than a redundancy mechanism. `X-Market-Source` header added.
+- `stock_cn_spot` / `stock_hk_spot` — auto-source not applied at request level. These are cache-based; auto-source at the cache layer is planned for a future release.
+
+### Design
+
+- All normalize maps derived from real data comparison (see `docs/unified-interface-distillation.md`), not from column name assumptions. The stock_cn_hist experience (Tencent `amount` = volume-in-lots, not 成交额) informed the methodology: always verify column semantics against cross-source samples.
+- Per-endpoint circuit breaker isolation prevents one endpoint's source failures from affecting another — each category has independent health tracking.
+
 ## 0.1.8
 
 ### Added
