@@ -26,21 +26,21 @@ AKTools wraps [AKShare](https://github.com/akfamily/akshare) functions as HTTP e
 
 | Type | Refresh | Persist | Stale |
 |---|---|---|---|
-| Spot (no-arg) | 60s market / 300s off | SQLite WAL every cycle | `X-Cache-Stale` header >120s |
-| List (no-arg) | Daily | SQLite WAL | — |
-| Profile (computed) | Daily | SQLite WAL | — |
+| Spot (no-arg) | 60s market / 300s off | SQLite WAL every cycle (~2 min) | `X-Cache-Stale` header >120s |
+| List (no-arg) | Every ~1440 cycles (~daily) | Before `_build_stock_profile` (~30s) | — |
+| Profile (computed) | Every ~1440 cycles (~daily) | After build completes (5–15 min) | — |
 | On-demand (with arg) | On first call + 60s TTL | At cycle boundary | — |
 
-Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). Restored on restart — warm flag set immediately if cache.db has entries. Per-key pause/resume via `_paused_keys` set.
+Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). On restart, cache is restored instantly (warm flag set). A `cache_metadata` table stores the last persist timestamp — if caches are still fresh, the first-cycle static refresh is skipped and the normal schedule resumes, avoiding wasteful API calls on frequent restarts. Per-key pause/resume via `_paused_keys` set.
 
-## Public Endpoints (44 total)
+## Public Endpoints (43 total)
 
 ### A-Shares (China)
 
 | Endpoint | Method | Cache | Params |
 |---|---|---|---|
 | `/api/public/v1/stock_cn_list` | GET | Daily, paginated | `page`(0=all), `page_size`(100) |
-| `/api/public/v1/stock_cn_spot` | GET | 60s, fallback | `source`(eastmoney/sina), `symbol`(optional filter) |
+| `/api/public/v1/stock_cn_spot` | GET | 60s, fallback | `source`(eastmoney/sina), `symbol`(optional filter) ↔ 11 English fields (see normalization) |
 | `/api/public/v1/stock_cn_hist` | GET | On-demand | `symbol`(req), `source`(eastmoney/sina/tencent/auto), `start_date`, `end_date`, `adjust`(`""`/`qfq`/`hfq`) ↔ 6 fields: `date,open,high,low,close,volume` |
 | `/api/public/v1/stock_cn_hist_intraday` | GET | On-demand | `symbol`(req), `source`(eastmoney/sina/auto), `period`(1/5/15/30/60), `start_date`, `end_date`, `adjust`(`""`/`qfq`/`hfq`) ↔ 6 fields: `time,open,high,low,close,volume` |
 | `/api/public/v1/stock_cn_search` | GET | Cached | `q`(req), `limit`(20, 0=all) |
@@ -52,7 +52,7 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). Restored
 |---|---|---|---|
 | `/api/public/v1/stock_us_list` | GET | Daily, paginated | `page`, `page_size` |
 | `/api/public/v1/stock_us_spot` | GET | 60s | `symbol`(optional filter) |
-| `/api/public/v1/stock_us_hist` | GET | On-demand | `symbol`(req), `source`(eastmoney/sina/auto), `start_date`, `end_date`, `adjust`(`""`/`qfq`/`hfq`) ↔ 6 fields: `date,open,high,low,close,volume` |
+| `/api/public/v1/stock_us_hist` | GET | On-demand | `symbol`(req, `AAPL` or `105.MSFT`), `source`(eastmoney/sina/auto), `start_date`, `end_date`, `adjust`(`""`/`qfq`/`hfq`) ↔ 6 fields: `date,open,high,low,close,volume` |
 | `/api/public/v1/stock_us_search` | GET | Cached | `q`(req), `limit`(20, 0=all) |
 
 ### HK Stocks
@@ -60,8 +60,8 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). Restored
 | Endpoint | Method | Cache | Params |
 |---|---|---|---|
 | `/api/public/v1/stock_hk_list` | GET | Daily, paginated | `page`, `page_size` |
-| `/api/public/v1/stock_hk_spot` | GET | 60s, fallback | `source`(eastmoney/sina), `symbol`(optional filter) |
-| `/api/public/v1/stock_hk_hist` | GET | On-demand | `symbol`(req), `source`(eastmoney/sina/auto), `start_date`, `end_date`, `adjust`(`""`/`qfq`/`hfq`) ↔ 6 fields: `date,open,high,low,close,volume` |
+| `/api/public/v1/stock_hk_spot` | GET | 60s, fallback | `source`(eastmoney/sina), `symbol`(optional filter) ↔ 10 English fields (see normalization) |
+| `/api/public/v1/stock_hk_hist` | GET | On-demand | `symbol`(req, e.g. `00700`), `source`(eastmoney/sina/auto), `start_date`, `end_date`, `adjust`(`""`/`qfq`/`hfq`) ↔ 6 fields: `date,open,high,low,close,volume` |
 | `/api/public/v1/stock_hk_search` | GET | Cached | `q`(req), `limit`(20, 0=all) |
 
 ### Funds & ETFs
@@ -102,7 +102,7 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). Restored
 |---|---|---|---|
 | `/api/public/v1/index_list` | GET | Daily, paginated | `page`, `page_size` |
 | `/api/public/v1/index_spot` | GET | 60s | `symbol`(optional filter, e.g. OMX) |
-| `/api/public/v1/index_hist` | GET | On-demand | `symbol`(req, get codes from index_spot), `source`(eastmoney/sina) |
+| `/api/public/v1/index_hist` | GET | On-demand | `symbol`(req, get codes from index_spot), `source`(eastmoney/sina) ⚠️ Sources serve different markets — not normalized |
 | `/api/public/v1/index_search` | GET | Cached | `q`(req), `limit`(20, 0=all) |
 
 ### Board / Sector
@@ -229,12 +229,12 @@ Dropped (sina-only): `日期时间, 中文名称, 英文名称, 交易类型, �
 | Code | Meaning |
 |---|---|
 | 200 | Success |
-| 400 | Bad parameter |
-| 401 | Missing/invalid token |
-| 404 | Not found |
-| 410 | Deprecated |
-| 502 | Upstream failed (3 retries) |
-| 503 | Cache warming |
+| 400 | Bad parameter (invalid source, missing symbol) |
+| 401 | Missing/invalid Bearer token |
+| 404 | Not found (symbol not in dataset, empty data from source) |
+| 410 | Deprecated (`/auth/token`) |
+| 502 | Upstream data source failed (3 retries exhausted, or all auto sources exhausted) |
+| 503 | Cache warming — data not yet available, retry after `Retry-After` seconds |
 
 ## Environment Variables
 
