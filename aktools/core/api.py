@@ -592,8 +592,8 @@ def _persist_cache_to_db():
                 )
             conn.commit()
             conn.close()
-        except Exception:
-            pass  # persistence is best-effort
+        except Exception as e:
+            logger.warning(f"缓存持久化失败 (cache.db 写入错误): {e}")
 
 
 def _load_cache_from_db():
@@ -668,6 +668,7 @@ def _refresh_cache():
         # 刷新实时行情（每周期）— A 股
         for source, func in _SPOT_SOURCE_MAP.items():
             try:
+                logger.info(f"正在刷新: A股实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
                     data = df.to_dict(orient="records")
@@ -682,6 +683,7 @@ def _refresh_cache():
         for source, func in _FUND_SPOT_SOURCE_MAP.items():
             cache_key = "fund_etf_spot" if source == "eastmoney" else "fund_lof_spot"
             try:
+                logger.info(f"正在刷新: {cache_key} ({source}) ...")
                 df = func()
                 if df is not None:
                     data = df.to_dict(orient="records")
@@ -695,6 +697,7 @@ def _refresh_cache():
         # 刷新实时行情（每周期）— US
         for source, func in _US_SPOT_SOURCE_MAP.items():
             try:
+                logger.info(f"正在刷新: 美股实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
                     data = df.to_dict(orient="records")
@@ -708,6 +711,7 @@ def _refresh_cache():
         # 刷新实时行情（每周期）— HK
         for source, func in _HK_SPOT_SOURCE_MAP.items():
             try:
+                logger.info(f"正在刷新: 港股实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
                     data = df.to_dict(orient="records")
@@ -721,6 +725,7 @@ def _refresh_cache():
         # 刷新实时行情（每周期）— 期货 / 指数 / 可转债
         for source, func in _FUTURES_SPOT_SOURCE_MAP.items():
             try:
+                logger.info(f"正在刷新: 期货实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
                     data = df.to_dict(orient="records")
@@ -733,6 +738,7 @@ def _refresh_cache():
                 failed += 1
         for source, func in _INDEX_SPOT_SOURCE_MAP.items():
             try:
+                logger.info(f"正在刷新: 指数实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
                     data = df.to_dict(orient="records")
@@ -745,6 +751,7 @@ def _refresh_cache():
                 failed += 1
         for source, func in _BOND_COV_SPOT_SOURCE_MAP.items():
             try:
+                logger.info(f"正在刷新: 可转债实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
                     data = df.to_dict(orient="records")
@@ -760,6 +767,7 @@ def _refresh_cache():
         if cycle == 1 or cycle % _static_interval == 0:
             for key, func in _STATIC_CACHE_MAP.items():
                 try:
+                    logger.info(f"正在刷新: 静态数据 {key} ...")
                     if func is None and key == "stock_profile":
                         data = _build_stock_profile()
                     else:
@@ -792,11 +800,25 @@ def _refresh_cache():
         time.sleep(ttl)
 
 
+# 创建一个日志记录器
+_LOG_LEVEL = os.getenv("AKTOOLS_LOG_LEVEL", "INFO").upper()
+logger = logging.getLogger(name="AKToolsLog")
+logger.setLevel(getattr(logging, _LOG_LEVEL, logging.INFO))
+
+# 创建一个TimedRotatingFileHandler来进行日志轮转
+handler = TimedRotatingFileHandler(
+    filename=os.path.join(_DATA_DIR, 'aktools.log'),
+    when='midnight', interval=1, backupCount=7, encoding='utf-8'
+)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
 # 启动时从 SQLite 恢复缓存（若有），避免冷启动等待
 _restored = _load_cache_from_db()
 if _restored:
     _spot_cache_warm.set()  # 恢复后可立即服务
-    logging.getLogger("AKToolsLog").info("缓存已从磁盘恢复，预热完成")
+    logger.info("缓存已从磁盘恢复，预热完成")
 
 _refresh_thread = threading.Thread(target=_refresh_cache, daemon=True)
 _refresh_thread.start()
@@ -845,6 +867,7 @@ def _call_akshare_direct(func, **kwargs):
     _accepted = set(_inspect.signature(func).parameters.keys())
     if _accepted:
         kwargs = {k: v for k, v in kwargs.items() if k in _accepted}
+    logger.info(f"正在获取数据: {func.__name__} ...")
     for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
         try:
             return func(**kwargs)
@@ -858,21 +881,6 @@ def _call_akshare_direct(func, **kwargs):
             time.sleep(RETRY_DELAY_SECONDS)
 
 
-# 创建一个日志记录器
-_LOG_LEVEL = os.getenv("AKTOOLS_LOG_LEVEL", "INFO").upper()
-logger = logging.getLogger(name="AKToolsLog")
-logger.setLevel(getattr(logging, _LOG_LEVEL, logging.INFO))
-
-# 创建一个TimedRotatingFileHandler来进行日志轮转
-handler = TimedRotatingFileHandler(
-    filename=os.path.join(_DATA_DIR, 'aktools.log'),
-    when='midnight', interval=1, backupCount=7, encoding='utf-8'
-)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-
-# 使用日志记录器记录信息
 logger.info('这是一个信息级别的日志消息')
 
 

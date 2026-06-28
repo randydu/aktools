@@ -56,7 +56,11 @@ class TokenStore:
         return raw
 
     def validate(self, token: str) -> str | None:
-        """Check if token is valid. Returns user_name or None."""
+        """Check if token is valid. Returns user_name or None.
+        
+        The last_used update is best-effort — auth succeeds even if the DB
+        is read-only (e.g. filesystem permission issue).
+        """
         with self._lock, sqlite3.connect(self._db_path) as conn:
             row = conn.execute(
                 "SELECT user_name FROM api_tokens WHERE token = ? AND revoked = 0",
@@ -64,11 +68,17 @@ class TokenStore:
             ).fetchone()
             if row is None:
                 return None
-            conn.execute(
-                "UPDATE api_tokens SET last_used = ? WHERE token = ?",
-                (_now(), token),
-            )
-            conn.commit()
+            try:
+                conn.execute(
+                    "UPDATE api_tokens SET last_used = ? WHERE token = ?",
+                    (_now(), token),
+                )
+                conn.commit()
+            except Exception as e:
+                import logging as _logging
+                _logging.getLogger("AKToolsLog").warning(
+                    f"Token last_used 更新失败 (tokens.db 写入错误): {e}"
+                )
         return row[0]
 
     def revoke(self, token: str) -> bool:
@@ -151,24 +161,37 @@ TOKENS_JSON_PATH = os.environ.get("AKTOOLS_TOKENS_FILE", "")
 
 
 def _bootstrap():
-    store = TokenStore()
+    import logging as _logging
+    _log = _logging.getLogger("AKToolsLog")
+
+    try:
+        store = TokenStore()
+    except Exception as e:
+        _log.error(f"Token 存储初始化失败 (tokens.db 无法创建/打开): {e}")
+        raise  # fatal — auth can't work without token storage
+
     # Import pre-configured tokens from JSON file (if configured)
     if TOKENS_JSON_PATH:
-        n = store.load_from_file(TOKENS_JSON_PATH)
-        if n:
-            import logging as _logging
-            _logging.getLogger("AKToolsLog").info(
-                f"从 {TOKENS_JSON_PATH} 导入了 {n} 个预配置 Token"
-            )
+        try:
+            n = store.load_from_file(TOKENS_JSON_PATH)
+            if n:
+                _log.info(f"从 {TOKENS_JSON_PATH} 导入了 {n} 个预配置 Token")
+        except Exception as e:
+            _log.warning(f"预配置 Token 导入失败 (tokens.db 写入错误): {e}")
+
     # Auto-create root token if still empty
     if store.count() == 0:
-        root = store.create_token("root")
-        import logging as _logging
-        _log = _logging.getLogger("AKToolsLog")
-        _log.warning("=" * 60)
-        _log.warning(f" ROOT API TOKEN (shown once): {root}")
-        _log.warning(" Save this token — it's required to manage other tokens.")
-        _log.warning("=" * 60)
+        try:
+            root = store.create_token("root")
+            _log.warning("=" * 60)
+            _log.warning(f" ROOT API TOKEN (shown once): {root}")
+            _log.warning(" Save this token — it's required to manage other tokens.")
+            _log.warning("=" * 60)
+        except Exception as e:
+            _log.error(f"Root token 创建失败 (tokens.db 写入错误): {e}")
+            # App can still start but auth is broken — this is fatal
+            raise
+
     return store
 
 
