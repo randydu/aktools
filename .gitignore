@@ -41,3 +41,12 @@ site/
 
 .python-version
 _patch_cache.py
+
+# codegraph
+.codegraph/
+
+# python venv
+.venv/
+
+# vi tmp file
+**/*.swp
