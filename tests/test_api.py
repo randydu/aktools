@@ -155,54 +155,47 @@ def test_unknown_source_passthrough():
 def test_circuit_breaker_not_in_cooldown_initially():
     """初始状态：所有源都不在冷却期"""
     for src in ["eastmoney", "tencent", "sina"]:
-        assert not _source_in_cooldown(src)
+        assert not _source_in_cooldown("cn_hist", src)
 
 
 def test_circuit_breaker_enters_cooldown_after_threshold():
     """连续失败 CIRCUIT_BREAKER_THRESHOLD 次后进入冷却"""
-    src = "eastmoney"
-    # 重置状态
-    _record_source_success(src)
+    cat, src = "cn_hist", "eastmoney"
+    _record_source_success(cat, src)
 
-    # 第一次失败 — 不应进入冷却
-    _record_source_failure(src)
-    assert not _source_in_cooldown(src)
+    _record_source_failure(cat, src)
+    assert not _source_in_cooldown(cat, src)
 
-    # 第二次失败 — 进入冷却（阈值=2）
-    _record_source_failure(src)
-    assert _source_in_cooldown(src)
+    _record_source_failure(cat, src)
+    assert _source_in_cooldown(cat, src)
 
 
 def test_circuit_breaker_success_resets_counter():
     """成功后重置失败计数器，冷却解除"""
-    src = "sina"
-    # 先让它失败 1 次（不到阈值）
-    _record_source_success(src)  # 重置
-    _record_source_failure(src)
-    assert not _source_in_cooldown(src)
+    cat, src = "cn_hist", "sina"
+    _record_source_success(cat, src)
+    _record_source_failure(cat, src)
+    assert not _source_in_cooldown(cat, src)
 
-    # 成功 → 计数器归零
-    _record_source_success(src)
-    # 再失败 2 次才能进入冷却
-    _record_source_failure(src)
-    assert not _source_in_cooldown(src)
-    _record_source_failure(src)
-    assert _source_in_cooldown(src)
+    _record_source_success(cat, src)
+    _record_source_failure(cat, src)
+    assert not _source_in_cooldown(cat, src)
+    _record_source_failure(cat, src)
+    assert _source_in_cooldown(cat, src)
 
 
 def test_circuit_breaker_cooldown_expires():
     """冷却期过后自动恢复"""
-    src = "tencent"
-    # 强制进入冷却（将 cooldown_until 设为过去）
-    from aktools.core.api import _source_health, _source_health_lock
+    cat, src = "cn_hist", "tencent"
+    from aktools.core.api import _source_health, _source_health_lock, _health_key
 
-    _record_source_success(src)  # 重置
-    _record_source_failure(src)
-    _record_source_failure(src)
-    assert _source_in_cooldown(src)  # 确实冷却中
+    _record_source_success(cat, src)
+    _record_source_failure(cat, src)
+    _record_source_failure(cat, src)
+    assert _source_in_cooldown(cat, src)
 
-    # 将冷却截止时间回拨到过去
+    key = _health_key(cat, src)
     with _source_health_lock:
-        _source_health[src]["cooldown_until"] = time.time() - 1
+        _source_health[key]["cooldown_until"] = time.time() - 1
 
-    assert not _source_in_cooldown(src)
+    assert not _source_in_cooldown(cat, src)

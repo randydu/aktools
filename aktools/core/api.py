@@ -112,19 +112,108 @@ _HIST_NORMALIZE_MAP = {
 }
 
 
-def _normalize_stock_hist(df: "pd.DataFrame", source: str) -> "pd.DataFrame":
-    """将各数据源的原始 DataFrame 归一化为统一 schema。
+# ── 其他端点的归一化映射 ───────────────────────────────────────
+# 这些端点与 stock_cn_hist 共享相同的 6 字段核心 schema（date/open/high/low/close/volume），
+# 但使用不同的数据源函数（不同的列名语言）。
 
-    源数据中不存在的列填充为 None。
+_INTRADAY_NORMALIZE_MAP = {
+    "eastmoney": [
+        ("time", "时间", None),
+        ("open", "开盘", None),
+        ("high", "最高", None),
+        ("low", "最低", None),
+        ("close", "收盘", None),
+        ("volume", "成交量", None),
+    ],
+    "sina": [
+        ("time", "day", None),
+        ("open", "open", None),
+        ("high", "high", None),
+        ("low", "low", None),
+        ("close", "close", None),
+        ("volume", "volume", None),
+    ],
+}
+
+_FUND_ETF_HIST_NORMALIZE_MAP = {
+    "eastmoney": [
+        ("date", "日期", None),
+        ("open", "开盘", None),
+        ("high", "最高", None),
+        ("low", "最低", None),
+        ("close", "收盘", None),
+        ("volume", "成交量", None),
+    ],
+    "sina": [
+        ("date", "date", None),
+        ("open", "open", None),
+        ("high", "high", None),
+        ("low", "low", None),
+        ("close", "close", None),
+        ("volume", "volume", None),
+    ],
+}
+
+_US_HIST_NORMALIZE_MAP = {
+    "eastmoney": [
+        ("date", "日期", None),
+        ("open", "开盘", None),
+        ("high", "最高", None),
+        ("low", "最低", None),
+        ("close", "收盘", None),
+        ("volume", "成交量", None),
+    ],
+    "sina": [
+        ("date", "date", None),
+        ("open", "open", None),
+        ("high", "high", None),
+        ("low", "low", None),
+        ("close", "close", None),
+        ("volume", "volume", None),
+    ],
+}
+
+_HK_HIST_NORMALIZE_MAP = {
+    "eastmoney": [
+        ("date", "日期", None),
+        ("open", "开盘", None),
+        ("high", "最高", None),
+        ("low", "最低", None),
+        ("close", "收盘", None),
+        ("volume", "成交量", None),
+    ],
+    "sina": [
+        ("date", "date", None),
+        ("open", "open", None),
+        ("high", "high", None),
+        ("low", "low", None),
+        ("close", "close", None),
+        ("volume", "volume", None),
+    ],
+}
+
+
+def _normalize_df(df: "pd.DataFrame", source: str,
+                  mapping: dict = None) -> "pd.DataFrame":
+    """将数据源的原始 DataFrame 归一化为统一 schema。
+
+    Args:
+        df: 原始 DataFrame。
+        source: 数据源名称。
+        mapping: {source: [(unified_name, source_name, transform), ...]}。
+                 默认使用 _HIST_NORMALIZE_MAP。
     """
     import pandas as pd
 
-    mapping = _HIST_NORMALIZE_MAP.get(source)
     if mapping is None:
+        mapping = _HIST_NORMALIZE_MAP
+
+    col_map = mapping.get(source)
+    if col_map is None:
         return df  # 未知数据源直接透传
 
     result = pd.DataFrame()
-    for unified_name, source_name, transform in mapping:
+    for unified_name, source_name, transform in col_map:
         if source_name in df.columns:
             series = df[source_name]
             if transform is not None:
@@ -137,54 +226,232 @@ def _normalize_stock_hist(df: "pd.DataFrame", source: str) -> "pd.DataFrame":
     return result
 
 
-# ── 自动数据源选择 + 熔断器 ─────────────────────────────────────
+def _normalize_stock_hist(df: "pd.DataFrame", source: str) -> "pd.DataFrame":
+    """stock_cn_hist 专用归一化（向后兼容）。"""
+    return _normalize_df(df, source, _HIST_NORMALIZE_MAP)
+
+
+# ── 实时行情归一化映射（中文 → 英文） ─────────────────────────
+
+_CN_SPOT_NORMALIZE_MAP = {
+    "eastmoney": [
+        ("code", "代码", None),
+        ("name", "名称", None),
+        ("latest", "最新价", None),
+        ("change_pct", "涨跌幅", None),
+        ("change_amt", "涨跌额", None),
+        ("volume", "成交量", None),
+        ("amount", "成交额", None),
+        ("prev_close", "昨收", None),
+        ("open", "今开", None),
+        ("high", "最高", None),
+        ("low", "最低", None),
+    ],
+    "sina": [
+        ("code", "代码", None),
+        ("name", "名称", None),
+        ("latest", "最新价", None),
+        ("change_pct", "涨跌幅", None),
+        ("change_amt", "涨跌额", None),
+        ("volume", "成交量", None),
+        ("amount", "成交额", None),
+        ("prev_close", "昨收", None),
+        ("open", "今开", None),
+        ("high", "最高", None),
+        ("low", "最低", None),
+    ],
+}
+
+_HK_SPOT_NORMALIZE_MAP = {
+    "eastmoney": [
+        ("code", "代码", None),
+        ("latest", "最新价", None),
+        ("change_amt", "涨跌额", None),
+        ("change_pct", "涨跌幅", None),
+        ("prev_close", "昨收", None),
+        ("open", "今开", None),
+        ("high", "最高", None),
+        ("low", "最低", None),
+        ("volume", "成交量", None),
+        ("amount", "成交额", None),
+    ],
+    "sina": [
+        ("code", "代码", None),
+        ("latest", "最新价", None),
+        ("change_amt", "涨跌额", None),
+        ("change_pct", "涨跌幅", None),
+        ("prev_close", "昨收", None),
+        ("open", "今开", None),
+        ("high", "最高", None),
+        ("low", "最低", None),
+        ("volume", "成交量", None),
+        ("amount", "成交额", None),
+    ],
+}
+
+
+def _normalize_records(records: list, source: str, mapping: dict) -> list:
+    """将原始 records（list of dict）的键从源列名映射为统一英文名。
+
+    Args:
+        records: [{源列名: value, ...}, ...]
+        source: 数据源名称。
+        mapping: {source: [(unified_name, source_name, transform), ...]}。
+
+    Returns:
+        新 records 列表，键已重命名为统一英文名。未映射的列被丢弃。
+    """
+    col_map = mapping.get(source)
+    if col_map is None:
+        return records  # 未知源透传
+
+    rename = {}
+    transforms = {}
+    for unified_name, source_name, transform in col_map:
+        rename[source_name] = unified_name
+        if transform is not None:
+            transforms[unified_name] = transform
+
+    result = []
+    for row in records:
+        new_row = {}
+        for src_key, val in row.items():
+            if src_key in rename:
+                key = rename[src_key]
+                if key in transforms:
+                    val = transforms[key](val)
+                new_row[key] = val
+        result.append(new_row)
+    return result
+
+
+# ── 自动数据源选择 + 熔断器（按类别隔离） ─────────────────────
 # 当 DEFAULT_SOURCE=auto 或 source=auto 时，按优先级尝试数据源。
 # 连续失败 CIRCUIT_BREAKER_THRESHOLD 次后进入熔断冷却期（秒），
 # 冷却期内 auto 模式跳过该源，避免无谓的超时等待。
+#
+# 每个端点类别有独立的优先级链和独立的熔断状态，
+# 类别键如 "cn_hist", "cn_intraday", "fund_etf_hist", "us_hist", "hk_hist"。
 
-_AUTO_SOURCE_PRIORITY = ["eastmoney", "tencent", "sina"]
+_AUTO_SOURCE_PRIORITY = {
+    "cn_hist": ["eastmoney", "tencent", "sina"],
+    "cn_intraday": ["eastmoney", "sina"],
+    "fund_etf_hist": ["eastmoney", "sina"],
+    "us_hist": ["eastmoney", "sina"],
+    "hk_hist": ["eastmoney", "sina"],
+}
 
 CIRCUIT_BREAKER_THRESHOLD = 2
 CIRCUIT_BREAKER_COOLDOWN = 60
 
-_source_health = {
-    "eastmoney": {"failures": 0, "cooldown_until": 0},
-    "tencent": {"failures": 0, "cooldown_until": 0},
-    "sina": {"failures": 0, "cooldown_until": 0},
-}
+_source_health = {}  # key: "category:source"
 _source_health_lock = threading.Lock()
 
 
-def _source_in_cooldown(src: str) -> bool:
-    """检查数据源是否处于熔断冷却期。"""
+def _health_key(category: str, src: str) -> str:
+    return f"{category}:{src}"
+
+
+def _ensure_health(category: str, src: str) -> dict:
+    """Get-or-create health entry for a category:source pair."""
+    key = _health_key(category, src)
     with _source_health_lock:
-        h = _source_health.get(src)
+        if key not in _source_health:
+            _source_health[key] = {"failures": 0, "cooldown_until": 0}
+        return _source_health[key]
+
+
+def _source_in_cooldown(category: str, src: str) -> bool:
+    """检查数据源是否处于熔断冷却期。"""
+    key = _health_key(category, src)
+    with _source_health_lock:
+        h = _source_health.get(key)
         if h and h["cooldown_until"] > time.time():
             return True
     return False
 
 
-def _record_source_success(src: str) -> None:
+def _record_source_success(category: str, src: str) -> None:
     """记录数据源调用成功，重置失败计数器。"""
+    h = _ensure_health(category, src)
     with _source_health_lock:
-        h = _source_health.get(src)
-        if h:
-            h["failures"] = 0
+        h["failures"] = 0
 
 
-def _record_source_failure(src: str) -> None:
+def _record_source_failure(category: str, src: str) -> None:
     """记录数据源调用失败，达到阈值后进入熔断冷却。"""
+    h = _ensure_health(category, src)
     with _source_health_lock:
-        h = _source_health.get(src)
-        if h is None:
-            return
         h["failures"] += 1
         if h["failures"] >= CIRCUIT_BREAKER_THRESHOLD:
             h["cooldown_until"] = time.time() + CIRCUIT_BREAKER_COOLDOWN
             logger.warning(
-                f"数据源 {src} 连续失败 {h['failures']} 次，"
+                f"数据源 {category}:{src} 连续失败 {h['failures']} 次，"
                 f"进入熔断冷却 {CIRCUIT_BREAKER_COOLDOWN}s"
             )
+
+
+class AutoSourceExhaustedError(Exception):
+    """All sources in the priority chain have been exhausted."""
+
+    def __init__(self, sources_tried: list, last_error: Exception = None):
+        self.sources_tried = sources_tried
+        self.last_error = last_error
+        super().__init__(
+            f"auto: 所有数据源不可用，已尝试 {sources_tried}"
+        )
+
+
+def _try_auto_sources(category: str, try_source: "callable"):
+    """Try sources in priority order with circuit breaker.
+
+    Args:
+        category: key into _AUTO_SOURCE_PRIORITY dict.
+        try_source: callable(src) -> DataFrame. Must raise on failure.
+
+    Returns:
+        (DataFrame, actual_source_name)
+
+    Raises:
+        AutoSourceExhaustedError if all sources fail.
+    """
+    priority = _AUTO_SOURCE_PRIORITY.get(category, [])
+    sources_tried = []
+    last_error = None
+
+    # Phase 1: try non-cooldown sources in priority order
+    for src in priority:
+        if _source_in_cooldown(category, src):
+            logger.info(f"auto({category}): 跳过 {src}（熔断冷却中）")
+            continue
+
+        logger.info(f"auto({category}): 尝试 {src}")
+        try:
+            df = try_source(src)
+            _record_source_success(category, src)
+            logger.info(f"auto({category}): 选中数据源 {src}")
+            return df, src
+        except Exception as e:
+            logger.warning(f"auto({category}): {src} 失败: {e}")
+            _record_source_failure(category, src)
+            sources_tried.append(src)
+            last_error = e
+
+    # Phase 2: last resort — retry sources that were in cooldown
+    for src in priority:
+        if src in sources_tried:
+            continue
+        logger.info(f"auto({category}): 所有源失败，尝试冷却中的 {src}")
+        try:
+            df = try_source(src)
+            _record_source_success(category, src)
+            logger.info(f"auto({category}): 冷却源 {src} 恢复，选中")
+            return df, src
+        except Exception as e:
+            sources_tried.append(src)
+            last_error = e
+
+    raise AutoSourceExhaustedError(sources_tried, last_error)
 
 
 # 实时行情数据源（函数无参数，返回全市场数据）
@@ -771,112 +1038,50 @@ def stock_cn_hist(
         )
 
     # ── auto 模式：按优先级尝试数据源 ────────────────────────
-    last_error = None
-    sources_tried = []
-
-    for src in _AUTO_SOURCE_PRIORITY:
-        if _source_in_cooldown(src):
-            logger.info(f"auto: 跳过 {src}（熔断冷却中）")
-            continue
-
+    def _try_cn_hist_source(src: str):
         source_config = _SOURCE_MAP[src]
         normalized = _normalize_symbol(symbol, source_config["prefixed"])
         logger.info(f"auto: 尝试 {src}，symbol={symbol} → {normalized}")
+        received_df = _call_akshare_direct(
+            source_config["func"],
+            symbol=normalized,
+            start_date=start_date,
+            end_date=end_date,
+            adjust=adjust,
+        )
+        if received_df is None:
+            raise ValueError(f"{src} 返回空数据")
+        return _normalize_stock_hist(received_df, src)
 
-        try:
-            received_df = _call_akshare_direct(
-                source_config["func"],
-                symbol=normalized,
-                start_date=start_date,
-                end_date=end_date,
-                adjust=adjust,
-            )
-            if received_df is None:
-                logger.info(f"auto: {src} 返回空数据，尝试下一个")
-                sources_tried.append(src)
-                continue
-
-            received_df = _normalize_stock_hist(received_df, src)
-            _record_source_success(src)
-            logger.info(f"auto: 选中数据源 {src}")
-            return Response(
-                content=_df_to_json_bytes(received_df),
-                media_type="application/json",
-                headers={"X-Market-Source": src},
-            )
-        except (RequestsConnectionError, RequestsTimeout) as e:
-            logger.warning(f"auto: {src} 连接失败: {e}")
-            _record_source_failure(src)
-            sources_tried.append(src)
-            last_error = JSONResponse(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                content={
-                    "error": f"auto: {src} 连接失败 ({e})，已尝试 {sources_tried}"
-                },
-            )
-        except Exception as e:
-            logger.error(f"auto: {src} 调用异常: {e}")
-            _record_source_failure(src)
-            sources_tried.append(src)
-            last_error = JSONResponse(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                content={
-                    "error": f"auto: {src} 异常 ({e})，已尝试 {sources_tried}"
-                },
-            )
-
-    # 所有非冷却源都失败 → 尝试冷却中的源（最后手段）
-    for src in _AUTO_SOURCE_PRIORITY:
-        if src in sources_tried:
-            continue
-        source_config = _SOURCE_MAP[src]
-        normalized = _normalize_symbol(symbol, source_config["prefixed"])
-        logger.info(f"auto: 所有源失败，尝试冷却中的 {src}")
-
-        try:
-            received_df = _call_akshare_direct(
-                source_config["func"],
-                symbol=normalized,
-                start_date=start_date,
-                end_date=end_date,
-                adjust=adjust,
-            )
-            if received_df is None:
-                sources_tried.append(src)
-                continue
-            received_df = _normalize_stock_hist(received_df, src)
-            _record_source_success(src)
-            logger.info(f"auto: 冷却源 {src} 恢复，选中")
-            return Response(
-                content=_df_to_json_bytes(received_df),
-                media_type="application/json",
-                headers={"X-Market-Source": src},
-            )
-        except Exception as e:
-            sources_tried.append(src)
-            last_error = JSONResponse(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                content={
-                    "error": f"auto: 所有数据源不可用，已尝试 {sources_tried}，最后错误: {e}"
-                },
-            )
-
-    return last_error or JSONResponse(
-        status_code=status.HTTP_502_BAD_GATEWAY,
-        content={"error": "auto: 无可用数据源"},
-    )
+    try:
+        received_df, actual_source = _try_auto_sources(
+            "cn_hist", _try_cn_hist_source
+        )
+        return Response(
+            content=_df_to_json_bytes(received_df),
+            media_type="application/json",
+            headers={"X-Market-Source": actual_source},
+        )
+    except AutoSourceExhaustedError as e:
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={
+                "error": f"auto: 所有数据源不可用，已尝试 {e.sources_tried}，"
+                f"最后错误: {e.last_error}"
+            },
+        )
 
 
 @app_core.get(
     path="/public/v1/stock_cn_hist_intraday",
     description="A 股分时行情接口 (v1)",
-    summary="支持切换数据源（eastmoney/sina），返回分钟级 K 线",
+    summary="支持切换数据源（eastmoney/sina/auto），返回分钟级 K 线",
 )
 def stock_cn_hist_intraday(
     request: Request,
     symbol: str = Query(..., description="股票代码，如 000001 或 sh600519"),
     source: str = Query(
-        "", description="数据源：eastmoney（默认）/ sina"
+        "", description=f"数据源：eastmoney/sina/auto（默认 {DEFAULT_SOURCE}）"
     ),
     period: str = Query("5", description="分时周期: 1, 5, 15, 30, 60"),
     start_date: str = Query("1979-09-01 09:32:00", description="开始时间 YYYY-MM-DD HH:MM:SS"),
@@ -884,54 +1089,62 @@ def stock_cn_hist_intraday(
     adjust: str = Query("", description="复权: 空=不复权, qfq=前复权, hfq=后复权"),
 ):
     source = source or DEFAULT_SOURCE
-    source_config = _INTRADAY_SOURCE_MAP.get(source)
-    if source_config is None:
-        valid = ", ".join(_INTRADAY_SOURCE_MAP)
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"error": f"不支持的数据源: {source}，可选: {valid}"},
-        )
 
-    # Sina 仅支持当日数据；若请求历史范围，自动回退到 eastmoney
-    if source == "sina":
-        today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
-        requested_day = start_date[:10] if start_date else ""
-        if requested_day and requested_day != today:
-            logger.info(
-                f"分时行情: Sina 不支持历史日期 ({requested_day})，回退到 eastmoney"
-            )
-            source = "eastmoney"
-            source_config = _INTRADAY_SOURCE_MAP["eastmoney"]
+    def _try_intraday(src: str) -> "pd.DataFrame":
+        sc = _INTRADAY_SOURCE_MAP[src]
+        s = _normalize_symbol(symbol, sc["prefixed"])
+        kwargs = {"symbol": s, "period": period, "adjust": adjust}
+        if src == "eastmoney":
+            kwargs["start_date"] = start_date
+            kwargs["end_date"] = end_date
+        df = _call_akshare_direct(sc["func"], **kwargs)
+        if df is None:
+            raise ValueError(f"{src} 返回空数据")
+        return _normalize_df(df, src, _INTRADAY_NORMALIZE_MAP)
 
-    normalized = _normalize_symbol(symbol, source_config["prefixed"])
-    logger.info(f"分时行情: symbol={symbol} → {normalized}, source={source}, period={period}")
-
-    kwargs = {"symbol": normalized, "period": period, "adjust": adjust}
-    if source == "eastmoney":
-        kwargs["start_date"] = start_date
-        kwargs["end_date"] = end_date
-
-    try:
-        received_df = _call_akshare_direct(source_config["func"], **kwargs)
-        if received_df is None:
+    # ── 显式数据源 ──────────────────────────────────────────
+    if source != "auto":
+        if source not in _INTRADAY_SOURCE_MAP:
+            valid = ", ".join(_INTRADAY_SOURCE_MAP)
             return JSONResponse(
-                status_code=status.HTTP_404_NOT_FOUND,
-                content={"error": "该接口返回数据为空"},
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": f"不支持的数据源: {source}，可选: {valid}"},
             )
-    except (RequestsConnectionError, RequestsTimeout) as e:
-        logger.error(f"分时 {source} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
-        return JSONResponse(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            content={"error": f"{source} 数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
-        )
-    except Exception as e:
-        logger.error(f"分时调用失败: {e}")
-        return JSONResponse(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            content={"error": f"数据接口调用异常: {e}"},
+        try:
+            received_df = _try_intraday(source)
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={"error": f"{source} 连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={"error": f"数据接口调用异常: {e}"},
+            )
+        return Response(
+            content=_df_to_json_bytes(received_df),
+            media_type="application/json",
+            headers={"X-Market-Source": source},
         )
 
-    return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
+    # ── auto 模式 ──────────────────────────────────────────
+    try:
+        received_df, actual_source = _try_auto_sources(
+            "cn_intraday", _try_intraday
+        )
+        return Response(
+            content=_df_to_json_bytes(received_df),
+            media_type="application/json",
+            headers={"X-Market-Source": actual_source},
+        )
+    except AutoSourceExhaustedError as e:
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={
+                "error": f"auto: 所有数据源不可用，已尝试 {e.sources_tried}"
+            },
+        )
 
 
 @app_core.get(
@@ -1002,7 +1215,11 @@ def stock_cn_spot(
     elif fallback_entry is not None:
         data = fallback_entry["data"]
         stale_headers = _stale_headers(fallback_entry["ts"])
-        source = next(s for s, e in _spot_cache.items() if e is fallback_entry)
+        cache_key_matched = next(
+            s for s, e in _spot_cache.items() if e is fallback_entry
+        )
+        # 从缓存键提取源名（"stock_cn_spot_eastmoney" → "eastmoney"）
+        source = cache_key_matched.replace("stock_cn_spot_", "")
         logger.info(
             f"实时行情回退到备用缓存: {source}, "
             f"age={int(time.time() - fallback_entry['ts'])}s"
@@ -1053,6 +1270,8 @@ def stock_cn_spot(
                 content={"error": f"未找到股票代码: {symbol}"},
             )
 
+    data = _normalize_records(data, source, _CN_SPOT_NORMALIZE_MAP)
+    stale_headers["X-Market-Source"] = source
     return JSONResponse(
         status_code=status.HTTP_200_OK, content=data, headers=stale_headers
     )
@@ -1248,54 +1467,68 @@ def fund_etf_hist_universal(
     request: Request,
     symbol: str = Query(..., description="ETF 代码，如 159915 或 sh510050"),
     source: str = Query(
-        "", description=f"数据源，可选 eastmoney/sina，默认 {DEFAULT_SOURCE}"
+        "", description=f"数据源，可选 eastmoney/sina/auto，默认 {DEFAULT_SOURCE}"
     ),
     start_date: str = Query("19700101", description="开始日期 YYYYMMDD"),
     end_date: str = Query("20500101", description="结束日期 YYYYMMDD"),
     adjust: str = Query("", description="复权类型: 空=不复权, qfq=前复权, hfq=后复权"),
 ):
     source = source or DEFAULT_SOURCE
-    source_config = _FUND_ETF_HIST_SOURCE_MAP.get(source)
-    if source_config is None:
-        valid = ", ".join(_FUND_ETF_HIST_SOURCE_MAP)
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"error": f"不支持的数据源: {source}，可选: {valid}"},
-        )
 
-    normalized = _normalize_symbol(symbol, source_config["prefixed"])
-    logger.info(f"ETF 历史: symbol={symbol} → {normalized}, source={source}")
-
-    try:
-        received_df = _call_akshare_direct(
-            source_config["func"],
-            symbol=normalized,
-            start_date=start_date,
-            end_date=end_date,
-            adjust=adjust,
+    def _try_fund_etf_hist(src: str) -> "pd.DataFrame":
+        sc = _FUND_ETF_HIST_SOURCE_MAP[src]
+        s = _normalize_symbol(symbol, sc["prefixed"])
+        df = _call_akshare_direct(
+            sc["func"], symbol=s,
+            start_date=start_date, end_date=end_date, adjust=adjust,
         )
-        if received_df is None:
-            logger.info("ETF 历史数据为空")
+        if df is None:
+            raise ValueError(f"{src} 返回空数据")
+        return _normalize_df(df, src, _FUND_ETF_HIST_NORMALIZE_MAP)
+
+    # ── 显式数据源 ──────────────────────────────────────────
+    if source != "auto":
+        if source not in _FUND_ETF_HIST_SOURCE_MAP:
+            valid = ", ".join(_FUND_ETF_HIST_SOURCE_MAP)
             return JSONResponse(
-                status_code=status.HTTP_404_NOT_FOUND,
-                content={"error": "该接口返回数据为空，请确认参数是否正确"},
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": f"不支持的数据源: {source}，可选: {valid}"},
             )
-    except (RequestsConnectionError, RequestsTimeout) as e:
-        logger.error(f"ETF 历史 {source} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+        try:
+            received_df = _try_fund_etf_hist(source)
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={"error": f"{source} 连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={"error": f"数据接口调用异常: {e}"},
+            )
+        return Response(
+            content=_df_to_json_bytes(received_df),
+            media_type="application/json",
+            headers={"X-Market-Source": source},
+        )
+
+    # ── auto 模式 ──────────────────────────────────────────
+    try:
+        received_df, actual_source = _try_auto_sources(
+            "fund_etf_hist", _try_fund_etf_hist
+        )
+        return Response(
+            content=_df_to_json_bytes(received_df),
+            media_type="application/json",
+            headers={"X-Market-Source": actual_source},
+        )
+    except AutoSourceExhaustedError as e:
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={
-                "error": f"{source} 数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次，请稍后重试或切换数据源"
+                "error": f"auto: 所有数据源不可用，已尝试 {e.sources_tried}"
             },
         )
-    except Exception as e:
-        logger.error(f"ETF 历史调用失败: {e}")
-        return JSONResponse(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            content={"error": f"数据接口调用异常: {e}"},
-        )
-
-    return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
 
 @app_core.get(
@@ -1391,52 +1624,67 @@ def stock_us_hist_universal(
     request: Request,
     symbol: str = Query(..., description="美股代码，如 AAPL 或 105.MSFT"),
     source: str = Query(
-        "", description=f"数据源，可选 eastmoney/sina，默认 {DEFAULT_SOURCE}"
+        "", description=f"数据源，可选 eastmoney/sina/auto，默认 {DEFAULT_SOURCE}"
     ),
     start_date: str = Query("19700101", description="开始日期 YYYYMMDD"),
     end_date: str = Query("22220101", description="结束日期 YYYYMMDD"),
     adjust: str = Query("", description="复权类型: 空=不复权, qfq=前复权, hfq=后复权"),
 ):
     source = source or DEFAULT_SOURCE
-    source_config = _US_HIST_SOURCE_MAP.get(source)
-    if source_config is None:
-        valid = ", ".join(_US_HIST_SOURCE_MAP)
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"error": f"不支持的数据源: {source}，可选: {valid}"},
-        )
 
-    logger.info(f"美股历史: symbol={symbol}, source={source}")
-
-    try:
-        received_df = _call_akshare_direct(
-            source_config["func"],
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            adjust=adjust,
+    def _try_us_hist(src: str) -> "pd.DataFrame":
+        sc = _US_HIST_SOURCE_MAP[src]
+        df = _call_akshare_direct(
+            sc["func"], symbol=symbol,
+            start_date=start_date, end_date=end_date, adjust=adjust,
         )
-        if received_df is None:
+        if df is None:
+            raise ValueError(f"{src} 返回空数据")
+        return _normalize_df(df, src, _US_HIST_NORMALIZE_MAP)
+
+    # ── 显式数据源 ──────────────────────────────────────────
+    if source != "auto":
+        if source not in _US_HIST_SOURCE_MAP:
+            valid = ", ".join(_US_HIST_SOURCE_MAP)
             return JSONResponse(
-                status_code=status.HTTP_404_NOT_FOUND,
-                content={"error": "该接口返回数据为空，请确认参数是否正确"},
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": f"不支持的数据源: {source}，可选: {valid}"},
             )
-    except (RequestsConnectionError, RequestsTimeout) as e:
-        logger.error(f"美股历史 {source} 重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+        try:
+            received_df = _try_us_hist(source)
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={"error": f"{source} 连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={"error": f"数据接口调用异常: {e}"},
+            )
+        return Response(
+            content=_df_to_json_bytes(received_df),
+            media_type="application/json",
+            headers={"X-Market-Source": source},
+        )
+
+    # ── auto 模式 ──────────────────────────────────────────
+    try:
+        received_df, actual_source = _try_auto_sources(
+            "us_hist", _try_us_hist
+        )
+        return Response(
+            content=_df_to_json_bytes(received_df),
+            media_type="application/json",
+            headers={"X-Market-Source": actual_source},
+        )
+    except AutoSourceExhaustedError as e:
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={
-                "error": f"{source} 数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次，请稍后重试或切换数据源"
+                "error": f"auto: 所有数据源不可用，已尝试 {e.sources_tried}"
             },
         )
-    except Exception as e:
-        logger.error(f"美股历史调用失败: {e}")
-        return JSONResponse(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            content={"error": f"数据接口调用异常: {e}"},
-        )
-
-    return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
 
 # ── 板块 V1 端点 ──────────────────────────────────────────────
@@ -2055,6 +2303,8 @@ def stock_hk_spot_universal(
         data = [row for row in data if code in str(row.get("代码", row.get("code", "")))]
         if not data:
             return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": f"未找到港股: {symbol}"})
+    data = _normalize_records(data, source, _HK_SPOT_NORMALIZE_MAP)
+    stale_headers["X-Market-Source"] = source
     return JSONResponse(status_code=status.HTTP_200_OK, content=data, headers=stale_headers)
 
 
@@ -2065,24 +2315,63 @@ def stock_hk_spot_universal(
 )
 def stock_hk_hist(
     symbol: str = Query(..., description="港股代码，如 00700"),
-    source: str = Query("", description="eastmoney / sina"),
+    source: str = Query("", description=f"eastmoney / sina / auto（默认 {DEFAULT_SOURCE}）"),
     start_date: str = Query("19700101"),
     end_date: str = Query("22220101"),
     adjust: str = Query(""),
 ):
     source = source or DEFAULT_SOURCE
-    sc = _HK_HIST_SOURCE_MAP.get(source)
-    if sc is None:
-        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": f"不支持: {source}"})
-    try:
-        df = _call_akshare_direct(sc["func"], symbol=symbol, start_date=start_date, end_date=end_date, adjust=adjust)
+
+    def _try_hk_hist(src: str) -> "pd.DataFrame":
+        sc = _HK_HIST_SOURCE_MAP[src]
+        df = _call_akshare_direct(
+            sc["func"], symbol=symbol,
+            start_date=start_date, end_date=end_date, adjust=adjust,
+        )
         if df is None:
-            return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "数据为空"})
-    except (RequestsConnectionError, RequestsTimeout) as e:
-        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
-    except Exception as e:
-        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
-    return Response(content=_df_to_json_bytes(df), media_type="application/json")
+            raise ValueError(f"{src} 返回空数据")
+        return _normalize_df(df, src, _HK_HIST_NORMALIZE_MAP)
+
+    # ── 显式数据源 ──────────────────────────────────────────
+    if source != "auto":
+        if source not in _HK_HIST_SOURCE_MAP:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": f"不支持: {source}"},
+            )
+        try:
+            df = _try_hk_hist(source)
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
+            )
+        except Exception as e:
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={"error": f"异常: {e}"},
+            )
+        return Response(
+            content=_df_to_json_bytes(df),
+            media_type="application/json",
+            headers={"X-Market-Source": source},
+        )
+
+    # ── auto 模式 ──────────────────────────────────────────
+    try:
+        df, actual_source = _try_auto_sources("hk_hist", _try_hk_hist)
+        return Response(
+            content=_df_to_json_bytes(df),
+            media_type="application/json",
+            headers={"X-Market-Source": actual_source},
+        )
+    except AutoSourceExhaustedError as e:
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={
+                "error": f"auto: 所有数据源不可用，已尝试 {e.sources_tried}"
+            },
+        )
 
 
 @app_core.get(
@@ -2213,7 +2502,11 @@ def index_hist(
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
     except Exception as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
-    return Response(content=_df_to_json_bytes(df), media_type="application/json")
+    return Response(
+        content=_df_to_json_bytes(df),
+        media_type="application/json",
+        headers={"X-Market-Source": source},
+    )
 
 
 @app_core.get(
