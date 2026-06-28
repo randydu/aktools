@@ -581,7 +581,7 @@ _spot_cache_lock = threading.Lock()
 _spot_cache_warm = threading.Event()  # 首次刷新完成后置位
 _paused_keys = set()                  # 暂停的缓存 key，含 "*" 表示全局暂停
 _paused_lock = threading.Lock()
-_CACHE_TTL_OFF = 300                  # 非交易时段刷新间隔（秒）
+_CACHE_TTL_OFF = 3600                 # 非交易时段刷新间隔（秒，盘后数据不变）
 
 # ── 缓存持久化到 SQLite ──────────────────────────────────────
 import sqlite3 as _sqlite3
