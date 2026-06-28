@@ -3,6 +3,8 @@
 本文档记录 `GET /api/public/v1/stock_cn_hist` 三个底层数据源（Eastmoney、Sina、Tencent）
 返回格式的差异，以及 AKTools 的统一归一化 schema。
 
+> **全量参考：** [unified-interface-distillation.md](unified-interface-distillation.md) 涵盖所有多源端点的完整字段清单、归一化映射和蒸馏过程。
+
 ---
 
 ## 底层数据源对比
