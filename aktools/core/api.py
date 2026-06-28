@@ -585,7 +585,13 @@ def _persist_cache_to_db():
             )
             conn.execute("BEGIN IMMEDIATE")
             for key, entry in _spot_cache.items():
-                data_json = json.dumps(entry["data"], ensure_ascii=False)
+                # Use orjson to handle numpy types (int64, float64, NaN)
+                # that json.dumps would reject with TypeError
+                data_json = orjson.dumps(
+                    entry["data"],
+                    default=str,
+                    option=orjson.OPT_SERIALIZE_NUMPY,
+                ).decode("utf-8")
                 conn.execute(
                     "INSERT OR REPLACE INTO persisted_cache VALUES (?, ?, ?)",
                     (key, data_json, entry["ts"]),
