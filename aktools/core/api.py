@@ -967,7 +967,12 @@ def _call_akshare_direct(func, **kwargs):
     _accepted = set(_inspect.signature(func).parameters.keys())
     if _accepted:
         kwargs = {k: v for k, v in kwargs.items() if k in _accepted}
-    logger.info(f"正在获取数据: {func.__name__} ...")
+    # Build a concise context string from the most useful params
+    _ctx_parts = [f"{func.__name__}"]
+    for _key in ("symbol", "start_date", "end_date", "period", "indicator"):
+        if _key in kwargs:
+            _ctx_parts.append(f"{_key}={kwargs[_key]}")
+    logger.info(f"正在获取数据: {' '.join(_ctx_parts)} ...")
     for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
         try:
             return func(**kwargs)
