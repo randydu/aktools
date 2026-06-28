@@ -796,6 +796,8 @@ def _refresh_cache():
                 try:
                     logger.info(f"正在刷新: 静态数据 {key} ...")
                     if func is None and key == "stock_profile":
+                        # 持久化已刷新的列表缓存（在慢速 _build_stock_profile 之前）
+                        _persist_cache_to_db()
                         data = _build_stock_profile()
                     else:
                         df = func()
