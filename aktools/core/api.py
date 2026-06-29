@@ -2134,7 +2134,8 @@ def _cached_on_demand(cache_key: str, func, **kwargs) -> tuple[list | None, int 
             return entry["data"], None
         return None, 502
     except Exception:
-        return None, 502
+        # Non-network error — likely bad symbol/params (KeyError, ValueError, etc.)
+        return None, 404
 
 
 def _stale_headers(cache_ts: float) -> dict:
@@ -2828,11 +2829,11 @@ def root(request: Request, item_id: str):
                 },
             )
         except Exception as e:
-            logger.error(f"接口 {item_id} 调用失败: {e}")
+            logger.warning(f"接口 {item_id} 查询失败: {e}")
             return JSONResponse(
-                status_code=status.HTTP_502_BAD_GATEWAY,
+                status_code=status.HTTP_404_NOT_FOUND,
                 content={
-                    "error": f"数据接口调用异常: {e}，可能是上游数据源暂时不可用，请稍后重试"
+                    "error": f"未找到数据: {item_id}，请确认参数是否正确"
                 },
             )
         logger.info(f"获取到 {item_id} 的数据")
@@ -2864,11 +2865,11 @@ def root(request: Request, item_id: str):
                 },
             )
         except Exception as e:
-            logger.error(f"接口 {item_id} 调用失败: {e}")
+            logger.warning(f"接口 {item_id} 查询失败: {e}")
             return JSONResponse(
-                status_code=status.HTTP_502_BAD_GATEWAY,
+                status_code=status.HTTP_404_NOT_FOUND,
                 content={
-                    "error": f"数据接口调用异常: {e}，可能是上游数据源暂时不可用，请稍后重试"
+                    "error": f"未找到数据: {item_id}，请确认参数是否正确"
                 },
             )
         logger.info(f"获取到 {item_id} 的数据")
