@@ -1138,10 +1138,10 @@ def stock_cn_hist(
                 },
             )
         except Exception as e:
-            logger.error(f"统一接口调用失败: {e}")
+            logger.warning(f"统一接口 {source} 查询失败 ({symbol}): {e}")
             return JSONResponse(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                content={"error": f"数据接口调用异常: {e}"},
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": f"未找到数据: {symbol}（{source}）"},
             )
 
         return Response(
@@ -1236,9 +1236,10 @@ def stock_cn_hist_intraday(
                 content={"error": f"{source} 连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
             )
         except Exception as e:
+            logger.warning(f"分时行情 {source} 查询失败 ({symbol}): {e}")
             return JSONResponse(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                content={"error": f"数据接口调用异常: {e}"},
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": f"未找到数据: {symbol}（{source}）"},
             )
         return Response(
             content=_df_to_json_bytes(received_df),
@@ -1500,7 +1501,8 @@ def fund_etf_hist_intraday(
     except (RequestsConnectionError, RequestsTimeout) as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
     except Exception as e:
-        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
+        logger.warning(f"ETF 分时查询失败 ({symbol}): {e}")
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": f"未找到: {symbol}"})
     return Response(content=_df_to_json_bytes(df), media_type="application/json")
 
 
@@ -1527,7 +1529,8 @@ def fund_lof_hist_intraday(
     except (RequestsConnectionError, RequestsTimeout) as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
     except Exception as e:
-        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
+        logger.warning(f"LOF 分时查询失败 ({symbol}): {e}")
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": f"未找到: {symbol}"})
     return Response(content=_df_to_json_bytes(df), media_type="application/json")
 
 
@@ -1625,9 +1628,10 @@ def fund_etf_hist_universal(
                 content={"error": f"{source} 连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
             )
         except Exception as e:
+            logger.warning(f"ETF 历史 {source} 查询失败 ({symbol}): {e}")
             return JSONResponse(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                content={"error": f"数据接口调用异常: {e}"},
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": f"未找到数据: {symbol}（{source}）"},
             )
         return Response(
             content=_df_to_json_bytes(received_df),
@@ -1786,9 +1790,10 @@ def stock_us_hist_universal(
                 content={"error": f"{source} 连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
             )
         except Exception as e:
+            logger.warning(f"美股历史 {source} 查询失败 ({symbol}): {e}")
             return JSONResponse(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                content={"error": f"数据接口调用异常: {e}"},
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": f"未找到数据: {symbol}（{source}）"},
             )
         return Response(
             content=_df_to_json_bytes(received_df),
@@ -2255,10 +2260,10 @@ def fund_lof_hist(
             content={"error": f"数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
         )
     except Exception as e:
-        logger.error(f"LOF 历史调用失败: {e}")
+        logger.warning(f"LOF 历史查询失败 ({symbol}): {e}")
         return JSONResponse(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            content={"error": f"数据接口调用异常: {e}"},
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": f"未找到数据: {symbol}"},
         )
     return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
@@ -2318,19 +2323,20 @@ def fund_open_hist(
         if received_df is None:
             return JSONResponse(
                 status_code=status.HTTP_404_NOT_FOUND,
-                content={"error": "该接口返回数据为空"},
+                content={"error": f"未找到基金: {symbol}"},
             )
     except (RequestsConnectionError, RequestsTimeout) as e:
-        logger.error(f"场外基金历史重试 {RETRY_MAX_ATTEMPTS} 次后仍失败: {e}")
+        logger.error(f"场外基金历史 {symbol} 网络错误: {e}")
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={"error": f"数据源连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
         )
     except Exception as e:
-        logger.error(f"场外基金历史调用失败: {e}")
+        # 非网络异常通常意味着无效的 symbol/参数（KeyError, ValueError 等）
+        logger.warning(f"场外基金历史 {symbol} 查询失败: {e}")
         return JSONResponse(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            content={"error": f"数据接口调用异常: {e}"},
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": f"未找到基金或数据: {symbol}"},
         )
     return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
@@ -2480,9 +2486,10 @@ def stock_hk_hist(
                 content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"},
             )
         except Exception as e:
+            logger.warning(f"港股历史 {source} 查询失败 ({symbol}): {e}")
             return JSONResponse(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                content={"error": f"异常: {e}"},
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": f"未找到数据: {symbol}（{source}）"},
             )
         return Response(
             content=_df_to_json_bytes(df),
@@ -2563,7 +2570,8 @@ def futures_hist(
     except (RequestsConnectionError, RequestsTimeout) as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败，已重试 {RETRY_MAX_ATTEMPTS} 次"})
     except Exception as e:
-        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
+        logger.warning(f"期货历史查询失败 ({symbol}): {e}")
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": f"未找到: {symbol}"})
     return Response(content=_df_to_json_bytes(df), media_type="application/json")
 
 
@@ -2718,7 +2726,8 @@ def bond_cov_hist(symbol: str = Query(..., description="可转债代码，如 sh
     except (RequestsConnectionError, RequestsTimeout) as e:
         return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"连接失败"})
     except Exception as e:
-        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content={"error": f"异常: {e}"})
+        logger.warning(f"可转债历史查询失败 ({symbol}): {e}")
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": f"未找到: {symbol}"})
     return Response(content=_df_to_json_bytes(df), media_type="application/json")
 
 
