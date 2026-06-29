@@ -2339,6 +2339,32 @@ def fund_open_hist(
             status_code=status.HTTP_404_NOT_FOUND,
             content={"error": f"未找到基金或数据: {symbol}"},
         )
+
+    # Upstream AKShare ignores the 'period' parameter — apply client-side date filter
+    import pandas as pd
+    _now = datetime.now(timezone(timedelta(hours=8)))  # Beijing time
+    _period_days = {
+        "1月": 30, "近1月": 30,
+        "3月": 90, "近3月": 90,
+        "6月": 180, "近6月": 180,
+        "1年": 365, "近1年": 365,
+        "3年": 1095,
+        "5年": 1825,
+    }
+    if period == "今年来":
+        _cutoff = _now.replace(month=1, day=1).date()
+    elif period in _period_days:
+        _cutoff = (_now - timedelta(days=_period_days[period])).date()
+    else:
+        _cutoff = None  # "成立来" — no filter
+
+    if _cutoff is not None:
+        _date_col = "净值日期"
+        if _date_col in received_df.columns:
+            received_df = received_df[
+                pd.to_datetime(received_df[_date_col]).dt.date >= _cutoff
+            ]
+
     return Response(content=_df_to_json_bytes(received_df), media_type="application/json")
 
 
