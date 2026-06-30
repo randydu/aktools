@@ -15,6 +15,15 @@ services:
       AKSHARE_PROXY: ""
       # 默认数据源: eastmoney / sina / tencent（海外用户推荐 sina 或 tencent）
       AKSHARE_DEFAULT_SOURCE: "sina"
+      # ---- 缓存控制 ----
+      # 设为 1 可完全禁用实时行情刷新（节省 API 调用）
+      # AKTOOLS_DISABLE_SPOT: 1
+      # 自适应刷新开关: 1=启用（默认）, 0=固定间隔（60s/3600s）
+      # AKTOOLS_SPOT_ADAPTIVE: 1
+      # 自适应阈值: 缓存被访问后保持高频刷新的秒数（默认 300 = 5 分钟）
+      # AKTOOLS_CACHE_WARM_S: 300
+      # 自适应阈值: 缓存未被访问多久后进入低频刷新（默认 1800 = 30 分钟）
+      # AKTOOLS_CACHE_COLD_S: 1800
       # ---- 日志 ----
       # 日志级别: DEBUG / INFO / WARNING / ERROR
       AKTOOLS_LOG_LEVEL: INFO
