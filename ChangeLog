@@ -1,5 +1,13 @@
 # ChangeLog
 
+## 0.2.1
+
+### Fixed
+
+- **500 Internal Server Error on spot endpoints** (fund_etf_spot, stock_cn_spot, etc.) — `df.to_dict(orient="records")` produced pandas `Timestamp` objects that `JSONResponse`'s `json.dumps` could not serialize. Added `_sanitize_records()` to convert Timestamp/date objects to ISO strings at all 10 cache-write sites.
+- **fund_open_hist ignored `period` parameter** — upstream AKShare `fund_open_fund_info_em` declares but ignores `period`, always returning full history. Added client-side date filtering mapping period values to cutoff dates (1月→30d, 3月→90d, 6月→180d, 1年→365d, 3年→1095d, 5年→1825d, 今年来→Jan 1).
+- **_cached_on_demand and legacy proxy returned 502 for unknown symbols** — board/concept spot+hist endpoints and generic `/api/public/{item_id}` proxy blocks still used `except Exception → 502`. Now returns 404 — all on-demand endpoints consistently return 404 for bad symbols/params, 502 only for network failures.
+
 ## 0.2.0
 
 ### Added
