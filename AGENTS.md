@@ -26,7 +26,7 @@ AKTools wraps [AKShare](https://github.com/akfamily/akshare) functions as HTTP e
 
 | Type | Refresh | Persist | Stale |
 |---|---|---|---|
-| Spot (no-arg) | 60s market / 300s off | SQLite WAL every cycle (~2 min) | `X-Cache-Stale` header >120s |
+| Spot (no-arg) | 60s market / 3600s off (adaptive: warm→slow→cold tiers) | SQLite WAL every cycle (~2 min) | `X-Cache-Stale` header >120s |
 | List (no-arg) | Every ~1440 cycles (~daily) | Before `_build_stock_profile` (~30s) | — |
 | Profile (computed) | Every ~1440 cycles (~daily) | After build completes (5–15 min) | — |
 | On-demand (with arg) | On first call + 60s TTL | At cycle boundary | — |
@@ -120,7 +120,7 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). On resta
 
 | Endpoint | Method | Response |
 |---|---|---|
-| `/api/public/v1/cache_status` | GET | `{warm, paused, market_open, paused_keys, caches}` |
+| `/api/public/v1/cache_status` | GET | `{warm, paused, market_open, spot_disabled, spot_adaptive, caches, adaptive}` |
 | `/api/public/v1/default_source` | GET | `{default_source, available}` |
 
 ## Management (auth required)
@@ -130,6 +130,8 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). On resta
 | `/api/private/v1/default_source` | POST | `source`(req) | Switch default source |
 | `/api/private/v1/cache/pause` | POST | `keys`(opt, comma-sep) | Per-key or global |
 | `/api/private/v1/cache/resume` | POST | `keys`(opt, comma-sep) | Per-key or global |
+| `/api/private/v1/cache/adaptive` | POST | `enabled`(req, `1`/`0`) | Toggle adaptive refresh |
+| `/api/private/v1/cache/interval` | POST | `key`(req), `interval`(req) | Set per-cache refresh interval (cycles, 0=disabled) |
 | `/api/private/v1/tokens` | POST | `user`(opt) | Create token |
 | `/api/private/v1/tokens` | GET | — | List tokens (prefix only) |
 | `/api/private/v1/tokens` | DELETE | `token`(req) | Revoke token |
@@ -243,6 +245,10 @@ Dropped (sina-only): `日期时间, 中文名称, 英文名称, 交易类型, �
 | `AKSHARE_PROXY` | — | HTTP proxy |
 | `AKSHARE_DEFAULT_SOURCE` | `auto` | Default data source (`auto` = automatic fallback with circuit breaker) |
 | `AKTOOLS_DATA_DIR` | `./data/` | Persistence directory |
+| `AKTOOLS_DISABLE_SPOT` | `0` | Set `1` to disable all spot cache refresh |
+| `AKTOOLS_SPOT_ADAPTIVE` | `1` | `0` = fixed intervals, `1` = adaptive (unused caches auto-slow) |
+| `AKTOOLS_CACHE_WARM_S` | `300` | Seconds a cache stays at warm frequency after last access |
+| `AKTOOLS_CACHE_COLD_S` | `1800` | Seconds before a cache drops to cold frequency |
 | `AKTOOLS_LOG_LEVEL` | `INFO` | DEBUG/INFO/WARNING/ERROR |
 | `AKTOOLS_TOKENS_FILE` | — | Pre-configured tokens JSON |
 

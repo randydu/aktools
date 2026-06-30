@@ -583,6 +583,52 @@ _paused_keys = set()                  # 暂停的缓存 key，含 "*" 表示全�
 _paused_lock = threading.Lock()
 _CACHE_TTL_OFF = 3600                 # 非交易时段刷新间隔（秒，盘后数据不变）
 
+# ── 缓存控制：静态 + 动态开关 ────────────────────────────────
+_SPOT_DISABLED = os.getenv("AKTOOLS_DISABLE_SPOT", "").strip() in ("1", "true", "yes")
+_SPOT_ADAPTIVE = os.getenv("AKTOOLS_SPOT_ADAPTIVE", "1").strip() in ("1", "true", "yes")
+# 自适应阈值（秒）
+_SPOT_ADAPTIVE_WARM_S = int(os.getenv("AKTOOLS_CACHE_WARM_S", "300"))   # 5 min
+_SPOT_ADAPTIVE_COLD_S = int(os.getenv("AKTOOLS_CACHE_COLD_S", "1800"))  # 30 min
+# 自适应间隔（周期数）
+_SPOT_INTERVAL_WARM = 1
+_SPOT_INTERVAL_SLOW = 10
+_SPOT_INTERVAL_COLD = max(1, _SPOT_ADAPTIVE_COLD_S // _CACHE_TTL)
+# 访问追踪 + 每缓存间隔
+_cache_access = {}        # {key: last_access_ts}
+_cache_interval = {}      # {key: refresh_every_n_cycles}
+_cache_interval_lock = threading.Lock()
+
+def _record_cache_access(key: str) -> None:
+    """Record that a cache key was accessed by a client."""
+    with _cache_interval_lock:
+        _cache_access[key] = time.time()
+        _cache_interval[key] = _SPOT_INTERVAL_WARM  # bump to warm
+
+def _spot_cache_should_refresh(key: str, cycle: int) -> bool:
+    """Check whether a spot cache should refresh this cycle (adaptive)."""
+    if not _SPOT_ADAPTIVE:
+        return True  # fixed interval — always refresh
+    with _cache_interval_lock:
+        interval = _cache_interval.get(key, _SPOT_INTERVAL_WARM)
+    return (cycle % interval) == 0
+
+def _spot_cache_update_interval(key: str) -> None:
+    """Update a cache key's interval based on time since last access."""
+    if not _SPOT_ADAPTIVE:
+        return
+    now = time.time()
+    with _cache_interval_lock:
+        last_access = _cache_access.get(key, 0)
+        if last_access == 0:
+            return  # never accessed — keep current interval
+        elapsed = now - last_access
+        if elapsed < _SPOT_ADAPTIVE_WARM_S:
+            _cache_interval[key] = _SPOT_INTERVAL_WARM
+        elif elapsed < _SPOT_ADAPTIVE_COLD_S:
+            _cache_interval[key] = _SPOT_INTERVAL_SLOW
+        else:
+            _cache_interval[key] = _SPOT_INTERVAL_COLD
+
 # ── 缓存持久化到 SQLite ──────────────────────────────────────
 import sqlite3 as _sqlite3
 _CACHE_DB = os.path.join(_DATA_DIR, "cache.db")
@@ -758,103 +804,135 @@ def _refresh_cache():
         cycle_start = time.time()
         succeeded = 0
         failed = 0
-        # 刷新实时行情（每周期）— A 股
-        for source, func in _SPOT_SOURCE_MAP.items():
-            try:
-                logger.info(f"正在刷新: A股实时行情 ({source}) ...")
-                df = func()
-                if df is not None:
-                    data = _sanitize_records(df.to_dict(orient="records"))
-                    with _spot_cache_lock:
-                        _spot_cache["stock_cn_spot_" + source] = {"data": data, "ts": time.time()}
-                    logger.info(f"缓存已刷新: stock_spot_{source} ({len(data)} 条)")
-                    succeeded += 1
-            except Exception as e:
-                logger.warning(f"刷新缓存失败 [stock_spot_{source}]: {e}")
-                failed += 1
-        # 刷新实时行情（每周期）— ETF / LOF
-        for source, func in _FUND_SPOT_SOURCE_MAP.items():
-            cache_key = "fund_etf_spot" if source == "eastmoney" else "fund_lof_spot"
-            try:
-                logger.info(f"正在刷新: {cache_key} ({source}) ...")
-                df = func()
-                if df is not None:
-                    data = _sanitize_records(df.to_dict(orient="records"))
-                    with _spot_cache_lock:
-                        _spot_cache[cache_key] = {"data": data, "ts": time.time()}
-                    logger.info(f"缓存已刷新: {cache_key} ({len(data)} 条)")
-                    succeeded += 1
-            except Exception as e:
-                logger.warning(f"刷新缓存失败 [{cache_key}]: {e}")
-                failed += 1
-        # 刷新实时行情（每周期）— US
-        for source, func in _US_SPOT_SOURCE_MAP.items():
-            try:
-                logger.info(f"正在刷新: 美股实时行情 ({source}) ...")
-                df = func()
-                if df is not None:
-                    data = _sanitize_records(df.to_dict(orient="records"))
-                    with _spot_cache_lock:
-                        _spot_cache["stock_us_spot"] = {"data": data, "ts": time.time()}
-                    logger.info(f"缓存已刷新: stock_us_spot ({len(data)} 条)")
-                    succeeded += 1
-            except Exception as e:
-                logger.warning(f"刷新缓存失败 [stock_us_spot]: {e}")
-                failed += 1
-        # 刷新实时行情（每周期）— HK
-        for source, func in _HK_SPOT_SOURCE_MAP.items():
-            try:
-                logger.info(f"正在刷新: 港股实时行情 ({source}) ...")
-                df = func()
-                if df is not None:
-                    data = _sanitize_records(df.to_dict(orient="records"))
-                    with _spot_cache_lock:
-                        _spot_cache["stock_hk_spot_" + source] = {"data": data, "ts": time.time()}
-                    logger.info(f"缓存已刷新: stock_hk_spot_{source} ({len(data)} 条)")
-                    succeeded += 1
-            except Exception as e:
-                logger.warning(f"刷新缓存失败 [stock_hk_spot_{source}]: {e}")
-                failed += 1
-        # 刷新实时行情（每周期）— 期货 / 指数 / 可转债
-        for source, func in _FUTURES_SPOT_SOURCE_MAP.items():
-            try:
-                logger.info(f"正在刷新: 期货实时行情 ({source}) ...")
-                df = func()
-                if df is not None:
-                    data = _sanitize_records(df.to_dict(orient="records"))
-                    with _spot_cache_lock:
-                        _spot_cache["futures_spot"] = {"data": data, "ts": time.time()}
-                    logger.info(f"缓存已刷新: futures_spot ({len(data)} 条)")
-                    succeeded += 1
-            except Exception as e:
-                logger.warning(f"刷新缓存失败 [futures_spot]: {e}")
-                failed += 1
-        for source, func in _INDEX_SPOT_SOURCE_MAP.items():
-            try:
-                logger.info(f"正在刷新: 指数实时行情 ({source}) ...")
-                df = func()
-                if df is not None:
-                    data = _sanitize_records(df.to_dict(orient="records"))
-                    with _spot_cache_lock:
-                        _spot_cache["index_spot"] = {"data": data, "ts": time.time()}
-                    logger.info(f"缓存已刷新: index_spot ({len(data)} 条)")
-                    succeeded += 1
-            except Exception as e:
-                logger.warning(f"刷新缓存失败 [index_spot]: {e}")
-                failed += 1
-        for source, func in _BOND_COV_SPOT_SOURCE_MAP.items():
-            try:
-                logger.info(f"正在刷新: 可转债实时行情 ({source}) ...")
-                df = func()
-                if df is not None:
-                    data = _sanitize_records(df.to_dict(orient="records"))
-                    with _spot_cache_lock:
-                        _spot_cache["bond_cov_spot"] = {"data": data, "ts": time.time()}
-                    logger.info(f"缓存已刷新: bond_cov_spot ({len(data)} 条)")
-                    succeeded += 1
-            except Exception as e:
-                logger.warning(f"刷新缓存失败 [bond_cov_spot]: {e}")
-                failed += 1
+        # 刷新实时行情（每周期）
+        if _SPOT_DISABLED:
+            logger.debug("实时行情已禁用 (AKTOOLS_DISABLE_SPOT=1)，跳过刷新")
+        else:
+            # 更新自适应间隔
+            for _spot_key in list(_SPOT_SOURCE_MAP.keys()):
+                _spot_cache_update_interval("stock_cn_spot_" + _spot_key)
+
+        # A 股
+        if not _SPOT_DISABLED:
+            for source, func in _SPOT_SOURCE_MAP.items():
+                if _SPOT_ADAPTIVE and not _spot_cache_should_refresh(
+                    "stock_cn_spot_" + source, cycle
+                ):
+                    continue
+                try:
+                    logger.info(f"正在刷新: A股实时行情 ({source}) ...")
+                    df = func()
+                    if df is not None:
+                        data = _sanitize_records(df.to_dict(orient="records"))
+                        with _spot_cache_lock:
+                            _spot_cache["stock_cn_spot_" + source] = {"data": data, "ts": time.time()}
+                        logger.info(f"缓存已刷新: stock_spot_{source} ({len(data)} 条)")
+                        succeeded += 1
+                except Exception as e:
+                    logger.warning(f"刷新缓存失败 [stock_spot_{source}]: {e}")
+                    failed += 1
+        # ETF / LOF
+        if not _SPOT_DISABLED:
+            for source, func in _FUND_SPOT_SOURCE_MAP.items():
+                cache_key = "fund_etf_spot" if source == "eastmoney" else "fund_lof_spot"
+                if _SPOT_ADAPTIVE and not _spot_cache_should_refresh(cache_key, cycle):
+                    continue
+                try:
+                    logger.info(f"正在刷新: {cache_key} ({source}) ...")
+                    df = func()
+                    if df is not None:
+                        data = _sanitize_records(df.to_dict(orient="records"))
+                        with _spot_cache_lock:
+                            _spot_cache[cache_key] = {"data": data, "ts": time.time()}
+                        logger.info(f"缓存已刷新: {cache_key} ({len(data)} 条)")
+                        succeeded += 1
+                except Exception as e:
+                    logger.warning(f"刷新缓存失败 [{cache_key}]: {e}")
+                    failed += 1
+        # US
+        if not _SPOT_DISABLED:
+            for source, func in _US_SPOT_SOURCE_MAP.items():
+                if _SPOT_ADAPTIVE and not _spot_cache_should_refresh("stock_us_spot", cycle):
+                    continue
+                try:
+                    logger.info(f"正在刷新: 美股实时行情 ({source}) ...")
+                    df = func()
+                    if df is not None:
+                        data = _sanitize_records(df.to_dict(orient="records"))
+                        with _spot_cache_lock:
+                            _spot_cache["stock_us_spot"] = {"data": data, "ts": time.time()}
+                        logger.info(f"缓存已刷新: stock_us_spot ({len(data)} 条)")
+                        succeeded += 1
+                except Exception as e:
+                    logger.warning(f"刷新缓存失败 [stock_us_spot]: {e}")
+                    failed += 1
+        # HK
+        if not _SPOT_DISABLED:
+            for source, func in _HK_SPOT_SOURCE_MAP.items():
+                _hk_key = "stock_hk_spot_" + source
+                if _SPOT_ADAPTIVE and not _spot_cache_should_refresh(_hk_key, cycle):
+                    continue
+                try:
+                    logger.info(f"正在刷新: 港股实时行情 ({source}) ...")
+                    df = func()
+                    if df is not None:
+                        data = _sanitize_records(df.to_dict(orient="records"))
+                        with _spot_cache_lock:
+                            _spot_cache[_hk_key] = {"data": data, "ts": time.time()}
+                        logger.info(f"缓存已刷新: {_hk_key} ({len(data)} 条)")
+                        succeeded += 1
+                except Exception as e:
+                    logger.warning(f"刷新缓存失败 [{_hk_key}]: {e}")
+                    failed += 1
+        # 期货 / 指数 / 可转债
+        if not _SPOT_DISABLED:
+            for source, func in _FUTURES_SPOT_SOURCE_MAP.items():
+                if _SPOT_ADAPTIVE and not _spot_cache_should_refresh("futures_spot", cycle):
+                    continue
+                try:
+                    logger.info(f"正在刷新: 期货实时行情 ({source}) ...")
+                    df = func()
+                    if df is not None:
+                        data = _sanitize_records(df.to_dict(orient="records"))
+                        with _spot_cache_lock:
+                            _spot_cache["futures_spot"] = {"data": data, "ts": time.time()}
+                        logger.info(f"缓存已刷新: futures_spot ({len(data)} 条)")
+                        succeeded += 1
+                except Exception as e:
+                    logger.warning(f"刷新缓存失败 [futures_spot]: {e}")
+                    failed += 1
+        if not _SPOT_DISABLED:
+            for source, func in _INDEX_SPOT_SOURCE_MAP.items():
+                if _SPOT_ADAPTIVE and not _spot_cache_should_refresh("index_spot", cycle):
+                    continue
+                try:
+                    logger.info(f"正在刷新: 指数实时行情 ({source}) ...")
+                    df = func()
+                    if df is not None:
+                        data = _sanitize_records(df.to_dict(orient="records"))
+                        with _spot_cache_lock:
+                            _spot_cache["index_spot"] = {"data": data, "ts": time.time()}
+                        logger.info(f"缓存已刷新: index_spot ({len(data)} 条)")
+                        succeeded += 1
+                except Exception as e:
+                    logger.warning(f"刷新缓存失败 [index_spot]: {e}")
+                    failed += 1
+        if not _SPOT_DISABLED:
+            for source, func in _BOND_COV_SPOT_SOURCE_MAP.items():
+                if _SPOT_ADAPTIVE and not _spot_cache_should_refresh("bond_cov_spot", cycle):
+                    continue
+                try:
+                    logger.info(f"正在刷新: 可转债实时行情 ({source}) ...")
+                    df = func()
+                    if df is not None:
+                        data = _sanitize_records(df.to_dict(orient="records"))
+                        with _spot_cache_lock:
+                            _spot_cache["bond_cov_spot"] = {"data": data, "ts": time.time()}
+                        logger.info(f"缓存已刷新: bond_cov_spot ({len(data)} 条)")
+                        succeeded += 1
+                except Exception as e:
+                    logger.warning(f"刷新缓存失败 [bond_cov_spot]: {e}")
+                    failed += 1
 
         # 持久化实时行情（不等慢速静态数据 — 避免 _build_stock_profile 阻塞）
         _persist_cache_to_db()
@@ -919,6 +997,7 @@ logger.info(f" AKTools 启动 — {datetime.now(timezone.utc).isoformat()}")
 logger.info(f" 数据目录: {_DATA_DIR}")
 logger.info(f" 默认数据源: {DEFAULT_SOURCE}")
 logger.info(f" 日志级别: {_LOG_LEVEL}")
+logger.info(f" 实时行情: {'禁用' if _SPOT_DISABLED else ('自适应刷新' if _SPOT_ADAPTIVE else '固定间隔')}")
 logger.info("=" * 60)
 
 # 启动时从 SQLite 恢复缓存（若有），避免冷启动等待
@@ -1331,6 +1410,8 @@ def stock_cn_spot(
     with _spot_cache_lock:
         cache_key = "stock_cn_spot_" + source
         entry = _spot_cache.get(cache_key)
+        if entry is not None:
+            _record_cache_access(cache_key)
         fallback_entry = None
         if entry is None:
             for s in _SPOT_SOURCE_MAP:
@@ -1562,6 +1643,8 @@ def fund_etf_spot_cached(
     cache_key = "fund_etf_spot"
     with _spot_cache_lock:
         entry = _spot_cache.get(cache_key)
+        if entry is not None:
+            _record_cache_access(cache_key)
 
     if entry is not None:
         data = entry["data"]
@@ -1726,6 +1809,8 @@ def stock_us_spot_cached(
     cache_key = "stock_us_spot"
     with _spot_cache_lock:
         entry = _spot_cache.get(cache_key)
+        if entry is not None:
+            _record_cache_access(cache_key)
 
     if entry is not None:
         data = entry["data"]
@@ -2112,14 +2197,69 @@ def cache_status(request: Request):
                 "age_seconds": int(now - entry["ts"]),
                 "refresh_interval_seconds": _intervals.get(key, _CACHE_TTL),
             }
+    # Add adaptive state and per-cache interval info
+    _adaptive_info = {}
+    with _cache_interval_lock:
+        for key in result:
+            interval = _cache_interval.get(key, _SPOT_INTERVAL_WARM)
+            last_access = _cache_access.get(key, 0)
+            _adaptive_info[key] = {
+                "interval_cycles": interval,
+                "last_access_age_s": int(now - last_access) if last_access else None,
+                "tier": ("warm" if interval <= _SPOT_INTERVAL_WARM else
+                         "slow" if interval <= _SPOT_INTERVAL_SLOW else "cold"),
+            }
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
             "warm": _spot_cache_warm.is_set(),
             "paused": '*' in _paused_keys,
             "market_open": _is_market_open(),
+            "spot_disabled": _SPOT_DISABLED,
+            "spot_adaptive": _SPOT_ADAPTIVE,
             "caches": result,
+            "adaptive": _adaptive_info,
         },
+    )
+
+
+@app_core.post(
+    path="/private/v1/cache/adaptive",
+    description="开关自适应缓存刷新",
+    summary="启用/禁用自适应刷新（需认证）",
+)
+def cache_adaptive_toggle(
+    enabled: str = Query(..., description="1=启用, 0=禁用"),
+    _current_user: User = Depends(get_current_active_user),
+):
+    global _SPOT_ADAPTIVE
+    new_val = enabled.strip() in ("1", "true", "yes")
+    old_val = _SPOT_ADAPTIVE
+    _SPOT_ADAPTIVE = new_val
+    logger.info(f"自适应刷新: {old_val} → {new_val}")
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"spot_adaptive": _SPOT_ADAPTIVE, "previous": old_val},
+    )
+
+
+@app_core.post(
+    path="/private/v1/cache/interval",
+    description="设置单个缓存刷新间隔",
+    summary="手动控制缓存刷新频率（需认证）",
+)
+def cache_set_interval(
+    key: str = Query(..., description="缓存 key"),
+    interval: int = Query(..., description="刷新间隔（周期数），0=禁用直到下次访问"),
+    _current_user: User = Depends(get_current_active_user),
+):
+    with _cache_interval_lock:
+        old = _cache_interval.get(key, _SPOT_INTERVAL_WARM)
+        _cache_interval[key] = interval
+    logger.info(f"缓存间隔 {key}: {old} → {interval} 周期")
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"key": key, "interval_cycles": interval, "previous": old},
     )
 
 
@@ -2132,6 +2272,8 @@ def _cached_on_demand(cache_key: str, func, **kwargs) -> tuple[list | None, int 
     """
     with _spot_cache_lock:
         entry = _spot_cache.get(cache_key)
+        if entry is not None:
+            _record_cache_access(cache_key)
     if entry is not None:
         age = int(time.time() - entry["ts"])
         if age < _CACHE_TTL:
@@ -2172,6 +2314,8 @@ def _search_cache(
     """Search a cached list by code or name (case-insensitive substring)."""
     with _spot_cache_lock:
         entry = _spot_cache.get(cache_key)
+        if entry is not None:
+            _record_cache_access(cache_key)
     if entry is None:
         return None, 0
     q_lower = q.strip().lower()
@@ -2219,6 +2363,8 @@ def fund_lof_spot_cached(
     cache_key = "fund_lof_spot"
     with _spot_cache_lock:
         entry = _spot_cache.get(cache_key)
+        if entry is not None:
+            _record_cache_access(cache_key)
     if entry is not None:
         data = entry["data"]
         age = int(time.time() - entry["ts"])
@@ -2468,6 +2614,8 @@ def stock_hk_spot_universal(
     cache_key = "stock_hk_spot_" + source
     with _spot_cache_lock:
         entry = _spot_cache.get(cache_key)
+        if entry is not None:
+            _record_cache_access(cache_key)
     if entry is not None:
         data = entry["data"]
         stale_headers = _stale_headers(entry["ts"])
@@ -2581,6 +2729,8 @@ def futures_spot_cached(request: Request, symbol: str = Query("")):
     cache_key = "futures_spot"
     with _spot_cache_lock:
         entry = _spot_cache.get(cache_key)
+        if entry is not None:
+            _record_cache_access(cache_key)
     if entry is not None:
         data = entry["data"]
         stale_headers = _stale_headers(entry["ts"])
@@ -2650,6 +2800,8 @@ def index_spot_cached(request: Request, symbol: str = Query("")):
     cache_key = "index_spot"
     with _spot_cache_lock:
         entry = _spot_cache.get(cache_key)
+        if entry is not None:
+            _record_cache_access(cache_key)
     if entry is not None:
         data = entry["data"]
         stale_headers = _stale_headers(entry["ts"])
@@ -2740,6 +2892,8 @@ def bond_cov_spot_cached(request: Request, symbol: str = Query("")):
     cache_key = "bond_cov_spot"
     with _spot_cache_lock:
         entry = _spot_cache.get(cache_key)
+        if entry is not None:
+            _record_cache_access(cache_key)
     if entry is not None:
         data = entry["data"]
         stale_headers = _stale_headers(entry["ts"])
