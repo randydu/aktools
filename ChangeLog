@@ -1,5 +1,19 @@
 # ChangeLog
 
+## 0.2.2
+
+### Added
+
+- **Adaptive spot cache refresh** — unused caches automatically drop from warm (60s) → slow (10 cycles) → cold (60 cycles) based on time since last client access. Accessed caches bump back to warm instantly. Cuts upstream API calls for inactive markets.
+- **Static spot disable:** `AKTOOLS_DISABLE_SPOT=1` env var completely skips all spot refresh. Spot endpoints serve stale cache or 503.
+- **Master adaptive toggle:** `AKTOOLS_SPOT_ADAPTIVE=0` env var or `POST /api/private/v1/cache/adaptive?enabled=0` (auth) — disable adaptive, revert to fixed 60s/3600s intervals.
+- **Per-cache interval control:** `POST /api/private/v1/cache/interval?key=stock_us_spot&interval=60` (auth) — manually set any cache's refresh interval in cycles (0 = disabled until next access).
+- **Adaptive thresholds:** `AKTOOLS_CACHE_WARM_S` (default 300s) and `AKTOOLS_CACHE_COLD_S` (default 1800s) — configure warm→slow→cold migration timing.
+- **Cache access tracking:** `_record_cache_access(key)` called by every spot/list endpoint on cache read. Tracks last-access time per key for adaptive tier migration.
+- **`cache_status` extended** — response now includes `spot_disabled`, `spot_adaptive`, and per-cache `adaptive` info (tier, interval_cycles, last_access_age_s).
+- **`docs/cache-architecture.md`** — full cache inventory (20+ entries), three-tier model, refresh timeline, persist points, restart behavior.
+- **`docker-compose.yml`** updated with cache control env vars (commented defaults).
+
 ## 0.2.1
 
 ### Fixed
