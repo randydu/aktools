@@ -588,6 +588,22 @@ import sqlite3 as _sqlite3
 _CACHE_DB = os.path.join(_DATA_DIR, "cache.db")
 
 
+def _sanitize_records(records: list) -> list:
+    """Convert non-JSON-serializable types (Timestamp, date, etc.) in records.
+
+    df.to_dict(orient="records") can produce pandas Timestamp / NaT objects
+    that json.dumps rejects.  Run this before caching or returning records.
+    """
+    import pandas as _pd
+    for row in records:
+        for k, v in list(row.items()):
+            if isinstance(v, (_pd.Timestamp,)):
+                row[k] = v.isoformat()
+            elif hasattr(v, "isoformat"):
+                row[k] = v.isoformat()
+    return records
+
+
 def _persist_cache_to_db():
     """Write all in-memory cache entries to SQLite (WAL mode, crash-safe)."""
     with _spot_cache_lock:
@@ -748,7 +764,7 @@ def _refresh_cache():
                 logger.info(f"正在刷新: A股实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
-                    data = df.to_dict(orient="records")
+                    data = _sanitize_records(df.to_dict(orient="records"))
                     with _spot_cache_lock:
                         _spot_cache["stock_cn_spot_" + source] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: stock_spot_{source} ({len(data)} 条)")
@@ -763,7 +779,7 @@ def _refresh_cache():
                 logger.info(f"正在刷新: {cache_key} ({source}) ...")
                 df = func()
                 if df is not None:
-                    data = df.to_dict(orient="records")
+                    data = _sanitize_records(df.to_dict(orient="records"))
                     with _spot_cache_lock:
                         _spot_cache[cache_key] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: {cache_key} ({len(data)} 条)")
@@ -777,7 +793,7 @@ def _refresh_cache():
                 logger.info(f"正在刷新: 美股实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
-                    data = df.to_dict(orient="records")
+                    data = _sanitize_records(df.to_dict(orient="records"))
                     with _spot_cache_lock:
                         _spot_cache["stock_us_spot"] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: stock_us_spot ({len(data)} 条)")
@@ -791,7 +807,7 @@ def _refresh_cache():
                 logger.info(f"正在刷新: 港股实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
-                    data = df.to_dict(orient="records")
+                    data = _sanitize_records(df.to_dict(orient="records"))
                     with _spot_cache_lock:
                         _spot_cache["stock_hk_spot_" + source] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: stock_hk_spot_{source} ({len(data)} 条)")
@@ -805,7 +821,7 @@ def _refresh_cache():
                 logger.info(f"正在刷新: 期货实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
-                    data = df.to_dict(orient="records")
+                    data = _sanitize_records(df.to_dict(orient="records"))
                     with _spot_cache_lock:
                         _spot_cache["futures_spot"] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: futures_spot ({len(data)} 条)")
@@ -818,7 +834,7 @@ def _refresh_cache():
                 logger.info(f"正在刷新: 指数实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
-                    data = df.to_dict(orient="records")
+                    data = _sanitize_records(df.to_dict(orient="records"))
                     with _spot_cache_lock:
                         _spot_cache["index_spot"] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: index_spot ({len(data)} 条)")
@@ -831,7 +847,7 @@ def _refresh_cache():
                 logger.info(f"正在刷新: 可转债实时行情 ({source}) ...")
                 df = func()
                 if df is not None:
-                    data = df.to_dict(orient="records")
+                    data = _sanitize_records(df.to_dict(orient="records"))
                     with _spot_cache_lock:
                         _spot_cache["bond_cov_spot"] = {"data": data, "ts": time.time()}
                     logger.info(f"缓存已刷新: bond_cov_spot ({len(data)} 条)")
@@ -855,7 +871,7 @@ def _refresh_cache():
                     else:
                         df = func()
                         if df is not None:
-                            data = df.to_dict(orient="records")
+                            data = _sanitize_records(df.to_dict(orient="records"))
                         else:
                             data = None
                     if data is not None:
@@ -1363,7 +1379,7 @@ def stock_cn_spot(
                     status_code=status.HTTP_404_NOT_FOUND,
                     content={"error": "该接口返回数据为空"},
                 )
-            data = df.to_dict(orient="records")
+            data = _sanitize_records(df.to_dict(orient="records"))
         except (RequestsConnectionError, RequestsTimeout) as e:
             logger.error(f"实时行情 {source} 直接调用失败: {e}")
             return JSONResponse(
@@ -2124,7 +2140,7 @@ def _cached_on_demand(cache_key: str, func, **kwargs) -> tuple[list | None, int 
         df = _call_akshare_direct(func, **kwargs)
         if df is None:
             return None, 404
-        data = df.to_dict(orient="records")
+        data = _sanitize_records(df.to_dict(orient="records"))
         with _spot_cache_lock:
             _spot_cache[cache_key] = {"data": data, "ts": time.time()}
         return data, None
