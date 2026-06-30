@@ -12,6 +12,10 @@ AKTools v0.1.3 — 44 endpoints across 10 categories, smart caching, multi-sourc
 | `AKSHARE_DEFAULT_SOURCE` | 默认数据源 | `auto` |
 | `AKTOOLS_TOKENS_FILE` | 预配置 Token JSON 文件路径 | 无 |
 | `AKTOOLS_DATA_DIR` | 持久化数据目录 | `./data/` |
+| `AKTOOLS_DISABLE_SPOT` | 禁用实时行情刷新 | `0` |
+| `AKTOOLS_SPOT_ADAPTIVE` | 自适应缓存刷新 | `1` |
+| `AKTOOLS_CACHE_WARM_S` | 高频阈值（秒） | `300` |
+| `AKTOOLS_CACHE_COLD_S` | 低频阈值（秒） | `1800` |
 | `AKTOOLS_LOG_LEVEL` | 日志级别 | `INFO` |
 
 ---

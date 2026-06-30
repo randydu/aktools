@@ -13,6 +13,7 @@
 - **`cache_status` extended** — response now includes `spot_disabled`, `spot_adaptive`, and per-cache `adaptive` info (tier, interval_cycles, last_access_age_s).
 - **`docs/cache-architecture.md`** — full cache inventory (20+ entries), three-tier model, refresh timeline, persist points, restart behavior.
 - **`docker-compose.yml`** updated with cache control env vars (commented defaults).
+- **Market-close aware:** spot refresh now completely skipped when markets are closed (_is_market_open()=False). Last market-hours cycle captured final prices; zero wasted API calls during off-hours/weekends.
 
 ## 0.2.1
 

@@ -6,7 +6,7 @@ AKTools uses a three-tier in-memory cache refreshed by a background daemon threa
 
 ## Tier 1: Spot caches (real-time market data)
 
-Refreshed every **60s during market hours** / **3600s off-hours**. These are full-market scans — no symbol filter applied at fetch time; filtering happens at request time from the cached dataset.
+Refreshed every **60s during market hours only**. Completely skipped when markets are closed (nights, weekends) — spot data doesn't change. Last market-hours cycle captures final closing prices. These are full-market scans — no symbol filter applied at fetch time; filtering happens at request time from the cached dataset.
 
 | Cache key | Market | AKShare function | Serves endpoints |
 |-----------|--------|-----------------|-----------------|
@@ -78,9 +78,9 @@ Cycle start
   │
   ├─ ~2s   Spot: A-share eastmoney ──┐
   ├─ ~2s   Spot: A-share sina        │
-  ├─ ~1s   Spot: ETF                 │ Market-hours: 60s between cycles
-  ├─ ~1s   Spot: LOF                 │ Off-hours:    3600s between cycles
-  ├─ ~2s   Spot: US                  │
+  ├─ ~1s   Spot: ETF                 │ Market-hours only (Mon–Fri 9:30–11:30, 13:00–15:00 CST)
+  ├─ ~1s   Spot: LOF                 │ Off-hours/weekends: skipped entirely
+  ├─ ~2s   Spot: US                  │ 60s between cycles during market hours
   ├─ ~2s   Spot: HK eastmoney        │
   ├─ ~2s   Spot: HK sina             │
   ├─ ~1s   Spot: futures             │
@@ -96,6 +96,34 @@ Cycle start
   └─ 5-15 min  Static: stock_profile  ← every ~1440 cycles, slowest
   │
   └─ 💾 persist all caches (cycle end)
+```
+
+## Adaptive spot refresh
+
+Spot caches use access-based adaptive refresh to save upstream API calls. Caches not accessed by any client automatically slow down:
+
+| Tier | Condition | Refresh interval |
+|------|-----------|-----------------|
+| **Warm** | Accessed < 5 min ago | Every cycle (60s) |
+| **Slow** | Accessed 5–30 min ago | Every 10 cycles (~10 min) |
+| **Cold** | Not accessed > 30 min | Every 60 cycles (~1 hr) |
+
+An access (any spot endpoint request) instantly bumps the cache back to warm. Thresholds are configurable via `AKTOOLS_CACHE_WARM_S` (default 300) and `AKTOOLS_CACHE_COLD_S` (default 1800).
+
+**Controls:**
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AKTOOLS_DISABLE_SPOT` | `0` | Set `1` to skip all spot refresh |
+| `AKTOOLS_SPOT_ADAPTIVE` | `1` | `0` = fixed 60s intervals, `1` = adaptive |
+| `AKTOOLS_CACHE_WARM_S` | `300` | Seconds before warm→slow transition |
+| `AKTOOLS_CACHE_COLD_S` | `1800` | Seconds before slow→cold transition |
+
+**Dynamic control (API, auth required):**
+
+```
+POST /api/private/v1/cache/adaptive?enabled=0    # disable adaptive
+POST /api/private/v1/cache/interval?key=stock_us_spot&interval=60  # per-cache
 ```
 
 ## Restart behavior

@@ -580,8 +580,10 @@ curl "http://127.0.0.1:8080/api/public/v1/cache_status"
 
 | 时段 | 刷新间隔 | 说明 |
 | ----- | :---: | ----- |
-| A 股交易时段 (Mon-Fri 9:30-11:30, 13:00-15:00 CST) | 60s | 活跃刷新 |
-| 非交易时段 / 周末 | 300s | 低频刷新 |
+| A 股交易时段 (Mon-Fri 9:30-11:30, 13:00-15:00 CST) | 60s | 活跃刷新（自适应：未访问的缓存自动降频） |
+| 非交易时段 / 周末 | **跳过** | 休市期间数据不变，完全不调用上游 API |
+
+**自适应刷新：** 被客户端访问的缓存保持 60s 高频刷新；未被访问的缓存自动降低频率（慢速 10 周期 → 冷 60 周期），再次访问立即恢复。可通过环境变量或 API 控制（见[缓存架构](cache-architecture.md)）。
 
 #### 数据新鲜度
 
@@ -748,4 +750,8 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_cn_spot"
 | `AKSHARE_DEFAULT_SOURCE` | V1 历史接口默认数据源 | `eastmoney` |
 | `AKTOOLS_TOKENS_FILE` | 预配置 Token 的 JSON 文件路径 | 无 |
 | `AKTOOLS_DATA_DIR` | 持久化数据目录（缓存、日志、Token），默认 `./data/` | `./data/` |
+| `AKTOOLS_DISABLE_SPOT` | 设为 `1` 完全禁用实时行情刷新 | `0` |
+| `AKTOOLS_SPOT_ADAPTIVE` | `0`=固定间隔, `1`=自适应降频 | `1` |
+| `AKTOOLS_CACHE_WARM_S` | 缓存保持高频的秒数（默认 5 分钟） | `300` |
+| `AKTOOLS_CACHE_COLD_S` | 缓存进入低频的秒数（默认 30 分钟） | `1800` |
 | `AKTOOLS_LOG_LEVEL` | 日志级别：`DEBUG` / `INFO` / `WARNING` / `ERROR` | `INFO` |
