@@ -805,15 +805,18 @@ def _refresh_cache():
         succeeded = 0
         failed = 0
         # 刷新实时行情（每周期）
+        # 休市时段跳过 — 数据不会变化，最后一次盘中刷新已捕获收盘价
+        _do_spot = not _SPOT_DISABLED and market_open
         if _SPOT_DISABLED:
             logger.debug("实时行情已禁用 (AKTOOLS_DISABLE_SPOT=1)，跳过刷新")
-        else:
-            # 更新自适应间隔
-            for _spot_key in list(_SPOT_SOURCE_MAP.keys()):
-                _spot_cache_update_interval("stock_cn_spot_" + _spot_key)
+        elif not market_open:
+            logger.debug("休市时段，跳过实时行情刷新")
+        # 更新自适应间隔（始终运行，让缓存冷却）
+        for _spot_key in list(_SPOT_SOURCE_MAP.keys()):
+            _spot_cache_update_interval("stock_cn_spot_" + _spot_key)
 
         # A 股
-        if not _SPOT_DISABLED:
+        if _do_spot:
             for source, func in _SPOT_SOURCE_MAP.items():
                 if _SPOT_ADAPTIVE and not _spot_cache_should_refresh(
                     "stock_cn_spot_" + source, cycle
@@ -832,7 +835,7 @@ def _refresh_cache():
                     logger.warning(f"刷新缓存失败 [stock_spot_{source}]: {e}")
                     failed += 1
         # ETF / LOF
-        if not _SPOT_DISABLED:
+        if _do_spot:
             for source, func in _FUND_SPOT_SOURCE_MAP.items():
                 cache_key = "fund_etf_spot" if source == "eastmoney" else "fund_lof_spot"
                 if _SPOT_ADAPTIVE and not _spot_cache_should_refresh(cache_key, cycle):
@@ -850,7 +853,7 @@ def _refresh_cache():
                     logger.warning(f"刷新缓存失败 [{cache_key}]: {e}")
                     failed += 1
         # US
-        if not _SPOT_DISABLED:
+        if _do_spot:
             for source, func in _US_SPOT_SOURCE_MAP.items():
                 if _SPOT_ADAPTIVE and not _spot_cache_should_refresh("stock_us_spot", cycle):
                     continue
@@ -867,7 +870,7 @@ def _refresh_cache():
                     logger.warning(f"刷新缓存失败 [stock_us_spot]: {e}")
                     failed += 1
         # HK
-        if not _SPOT_DISABLED:
+        if _do_spot:
             for source, func in _HK_SPOT_SOURCE_MAP.items():
                 _hk_key = "stock_hk_spot_" + source
                 if _SPOT_ADAPTIVE and not _spot_cache_should_refresh(_hk_key, cycle):
@@ -885,7 +888,7 @@ def _refresh_cache():
                     logger.warning(f"刷新缓存失败 [{_hk_key}]: {e}")
                     failed += 1
         # 期货 / 指数 / 可转债
-        if not _SPOT_DISABLED:
+        if _do_spot:
             for source, func in _FUTURES_SPOT_SOURCE_MAP.items():
                 if _SPOT_ADAPTIVE and not _spot_cache_should_refresh("futures_spot", cycle):
                     continue
@@ -901,7 +904,7 @@ def _refresh_cache():
                 except Exception as e:
                     logger.warning(f"刷新缓存失败 [futures_spot]: {e}")
                     failed += 1
-        if not _SPOT_DISABLED:
+        if _do_spot:
             for source, func in _INDEX_SPOT_SOURCE_MAP.items():
                 if _SPOT_ADAPTIVE and not _spot_cache_should_refresh("index_spot", cycle):
                     continue
@@ -917,7 +920,7 @@ def _refresh_cache():
                 except Exception as e:
                     logger.warning(f"刷新缓存失败 [index_spot]: {e}")
                     failed += 1
-        if not _SPOT_DISABLED:
+        if _do_spot:
             for source, func in _BOND_COV_SPOT_SOURCE_MAP.items():
                 if _SPOT_ADAPTIVE and not _spot_cache_should_refresh("bond_cov_spot", cycle):
                     continue
