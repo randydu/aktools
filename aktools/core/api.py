@@ -2519,7 +2519,7 @@ def fund_est_nav(
             content={"error": f"未找到基金净值: {symbol}"},
         )
 
-    # 3. Look up stock prices from spot caches
+    # 3. Look up stock prices from spot caches (normalized English keys)
     _stocks = []
     _missing = []
     for _row in _pf_data:
@@ -2535,7 +2535,7 @@ def fund_est_nav(
                 _entry = _spot_cache.get(f"stock_cn_spot_{_src}")
             if _entry:
                 for _r in _entry["data"]:
-                    if str(_r.get("代码", "")) == _code:
+                    if str(_r.get("code", "")) == _code:
                         _spot = _r
                         break
             if _spot:
@@ -2548,7 +2548,7 @@ def fund_est_nav(
                     _entry = _spot_cache.get(f"stock_hk_spot_{_src}")
                 if _entry:
                     for _r in _entry["data"]:
-                        if str(_r.get("代码", "")) == _code:
+                        if str(_r.get("code", "")) == _code:
                             _spot = _r
                             break
                 if _spot:
@@ -2558,8 +2558,8 @@ def fund_est_nav(
             _missing.append(_code)
             continue
 
-        _prev_close = float(_spot.get("昨收", 0))
-        _latest = float(_spot.get("最新价", 0))
+        _prev_close = float(_spot.get("prev_close", 0))
+        _latest = float(_spot.get("latest", 0))
         if _prev_close <= 0:
             _missing.append(_code)
             continue
@@ -2567,7 +2567,7 @@ def fund_est_nav(
         _change_pct = (_latest / _prev_close - 1) * 100 if _prev_close else 0
         _stocks.append({
             "code": _code,
-            "name": _spot.get("名称", _spot.get("中文名称", "")),
+            "name": _spot.get("name", ""),
             "weight_pct": round(_weight, 2),
             "prev_close": _prev_close,
             "latest": _latest,
