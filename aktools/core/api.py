@@ -2536,7 +2536,23 @@ def fund_est_nav(
                 content={"error": f"未找到基金净值: {symbol}"},
             )
 
-    # 3. Look up stock prices from spot caches (normalized English keys)
+    # 3. Look up stock prices from spot caches (build code→row index first)
+    def _build_index(cache_key: str) -> dict:
+        with _spot_cache_lock:
+            _entry = _spot_cache.get(cache_key)
+        if not _entry:
+            return {}
+        return {
+            str(_r.get("code", "")): _r
+            for _r in _entry["data"]
+            if _r.get("code")
+        }
+
+    _cn_e = _build_index("stock_cn_spot_eastmoney")
+    _cn_s = _build_index("stock_cn_spot_sina")
+    _hk_e = _build_index("stock_hk_spot_eastmoney")
+    _hk_s = _build_index("stock_hk_spot_sina")
+
     _stocks = []
     _missing = []
     for _row in _pf_data:
@@ -2545,32 +2561,7 @@ def fund_est_nav(
         if not _code or _weight <= 0:
             continue
 
-        # Try A-share spot first, then HK spot
-        _spot = None
-        for _src in ("eastmoney", "sina"):
-            with _spot_cache_lock:
-                _entry = _spot_cache.get(f"stock_cn_spot_{_src}")
-            if _entry:
-                for _r in _entry["data"]:
-                    if str(_r.get("code", "")) == _code:
-                        _spot = _r
-                        break
-            if _spot:
-                break
-
-        if not _spot:
-            # Try HK spot
-            for _src in ("eastmoney", "sina"):
-                with _spot_cache_lock:
-                    _entry = _spot_cache.get(f"stock_hk_spot_{_src}")
-                if _entry:
-                    for _r in _entry["data"]:
-                        if str(_r.get("code", "")) == _code:
-                            _spot = _r
-                            break
-                if _spot:
-                    break
-
+        _spot = _cn_e.get(_code) or _cn_s.get(_code) or _hk_e.get(_code) or _hk_s.get(_code)
         if not _spot:
             _missing.append(_code)
             continue
@@ -2610,8 +2601,30 @@ def fund_est_nav(
     )
     _raw_est = round(_today_nav * (1 + _weighted_change_today / 100), 4)
 
-    # 5. Error ratio — only compute if not cached from step 2
-    if not _er_entry or _er_entry.get("nav_date") != _today_date:
+    # 5. Error ratio — recalibrate when: no cache yet, OR baseline exists
+    # (baseline means we have prior close data and should try to compute ratio).
+    # If nav_date hasn't changed, the cached error_ratio from step 2 is reused.
+    _needs_recal = (
+        not _er_entry
+        or _er_entry.get("nav_date") != _today_date
+        or (_pf_bl_entry is not None and _nav_df is True)
+    )
+    # Re-fetch NAV if baseline exists but we only have cached values
+    if _pf_bl_entry and _nav_df is True:
+        try:
+            _nav_df = _call_akshare_direct(
+                ak.fund_open_fund_info_em, symbol=symbol, indicator="单位净值走势"
+            )
+            if _nav_df is not None and len(_nav_df) >= 3:
+                _today_nav = float(_nav_df["单位净值"].iloc[-1])
+                _yesterday_nav = float(_nav_df["单位净值"].iloc[-2])
+                _today_date = str(_nav_df["净值日期"].iloc[-1])
+            else:
+                _nav_df = True
+        except Exception:
+            _nav_df = True
+
+    if _needs_recal:
         _close_snapshot = {
             s["code"]: s["prev_close"] for s in _stocks if s["prev_close"] > 0
         }
