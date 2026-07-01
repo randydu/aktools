@@ -2695,6 +2695,60 @@ def fund_est_nav(
 
 
 @app_core.get(
+    path="/public/v1/fund_portfolio",
+    description="基金持仓 (v1)",
+    summary="返回基金最新季报股票持仓，数据缓存 24 小时",
+)
+def fund_portfolio(
+    symbol: str = Query(..., description="基金代码，如 009568"),
+):
+    """Return latest quarterly stock portfolio for an open-end fund."""
+    from datetime import date as _date
+
+    _pf_key = f"fund_portfolio:{symbol}"
+    with _spot_cache_lock:
+        _pf_entry = _spot_cache.get(_pf_key)
+
+    if _pf_entry is not None and (time.time() - _pf_entry["ts"]) < _FUND_PORTFOLIO_CACHE_TTL:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "symbol": symbol,
+                "cached": True,
+                "holdings": _pf_entry["data"],
+            },
+        )
+
+    try:
+        _pf_df = ak.fund_portfolio_hold_em(symbol=symbol, date=str(_date.today().year))
+        if _pf_df is None or _pf_df.empty:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"error": f"未找到基金持仓: {symbol}"},
+            )
+        _latest_q = _pf_df["季度"].iloc[0]
+        _pf_df = _pf_df[_pf_df["季度"] == _latest_q]
+        _pf_data = _pf_df.to_dict(orient="records")
+        with _spot_cache_lock:
+            _spot_cache[_pf_key] = {"data": _pf_data, "ts": time.time()}
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "symbol": symbol,
+                "quarter": _latest_q,
+                "cached": False,
+                "holdings": _pf_data,
+            },
+        )
+    except Exception as e:
+        logger.warning(f"基金持仓获取失败 ({symbol}): {e}")
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": f"未找到基金持仓: {symbol}"},
+        )
+
+
+@app_core.get(
     path="/public/v1/fund_open_list",
     description="场外开放式基金列表 (v1, 缓存)",
     summary="返回全部开放式基金及最新净值，数据来自后台缓存",
