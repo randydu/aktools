@@ -469,6 +469,36 @@ curl "http://127.0.0.1:8080/api/public/v1/fund_etf_spot?symbol=159915"
 
 返回全部开放式基金及最新净值，数据由后台缓存（每日刷新），支持分页。
 
+### 基金持仓
+
+`GET /api/public/v1/fund_portfolio?symbol=009568`
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | 基金代码，如 `009568` |
+
+返回最新季报的股票持仓明细（缓存 24 小时）。包含：`股票代码`、`股票名称`、`占净值比例`、`持股数`、`持仓市值`、`季度`。
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/fund_portfolio?symbol=009568"
+```
+
+### 基金实时估值
+
+`GET /api/public/v1/fund_est_nav?symbol=009568`
+
+| 参数 | 必填 | 默认值 | 说明 |
+| ----- | :---: | ----- | ----- |
+| `symbol` | 是 | — | 基金代码，如 `009568` |
+
+基于最新季报持仓 + 实时行情估算基金净值。返回 `nav`（最新公布净值）、`raw_est`（原始估值）、`error_ratio`（校准误差率）、`calibrated_est`（校准后估值）、`market_open`（是否交易时段）、`holdings`（持仓明细含实时涨跌幅）。
+
+> **校准机制：** 首次调用误差率为 1.0（未校准）。次日基于前日收盘价计算持仓加权涨跌 → 估算前日净值 → 与实际公布值对比得出误差率。后续调用缓存误差率（每交易日刷新一次）。
+
+```sh
+curl "http://127.0.0.1:8080/api/public/v1/fund_est_nav?symbol=009568"
+```
+
 ### 场外基金历史净值
 
 `GET /api/public/v1/fund_open_hist?symbol=710001`
@@ -720,7 +750,8 @@ curl -H "Authorization: Bearer akt_..." \
 | 401 | 未认证或 Token 无效 |
 | 404 | 接口不存在或返回数据为空 |
 | 500 | 服务器内部错误 |
-| 502 | 上游数据源连接失败（已自动重试 3 次） |
+| 502 | 上游数据源连接失败（已自动重试 3 次，或 auto 模式所有源不可用） |
+| 503 | 缓存预热中 — 数据尚未就绪，稍后重试 |
 
 ---
 
@@ -747,7 +778,7 @@ curl "http://127.0.0.1:8080/api/public/v1/stock_cn_spot"
 | 变量 | 用途 | 默认值 |
 | ----- | ----- | ----- |
 | `AKSHARE_PROXY` | HTTP/HTTPS 代理，如 `http://127.0.0.1:7890` | 无 |
-| `AKSHARE_DEFAULT_SOURCE` | V1 历史接口默认数据源 | `eastmoney` |
+| `AKSHARE_DEFAULT_SOURCE` | V1 历史接口默认数据源 | `auto` |
 | `AKTOOLS_TOKENS_FILE` | 预配置 Token 的 JSON 文件路径 | 无 |
 | `AKTOOLS_DATA_DIR` | 持久化数据目录（缓存、日志、Token），默认 `./data/` | `./data/` |
 | `AKTOOLS_DISABLE_SPOT` | 设为 `1` 完全禁用实时行情刷新 | `0` |
