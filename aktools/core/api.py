@@ -2498,26 +2498,43 @@ def fund_est_nav(
                 content={"error": f"未找到基金持仓: {symbol}"},
             )
 
-    # 2. Get NAV history (last 2 values)
-    try:
-        _nav_df = _call_akshare_direct(
-            ak.fund_open_fund_info_em, symbol=symbol, indicator="单位净值走势"
-        )
-        if _nav_df is None or len(_nav_df) < 2:
+    # 2. Get NAV + error_ratio — check cache first (per trading day)
+    _er_key = f"fund_est_error:{symbol}"
+    with _spot_cache_lock:
+        _er_entry = _spot_cache.get(_er_key)
+
+    # Try cached NAV if available (same-day reuse avoids AKShare call)
+    _nav_df = None
+    if _er_entry:
+        _today_nav = _er_entry.get("nav")
+        _yesterday_nav = _er_entry.get("yesterday_nav")
+        _today_date = _er_entry.get("nav_date")
+        if _today_nav and _today_date:
+            _error_ratio = _er_entry["error_ratio"]
+            _calibrated_note = _er_entry.get("note")
+            _nav_df = True  # signal: have cached NAV, skip fetch
+        else:
+            _er_entry = None  # stale/incomplete, re-fetch
+
+    if not _nav_df:
+        try:
+            _nav_df = _call_akshare_direct(
+                ak.fund_open_fund_info_em, symbol=symbol, indicator="单位净值走势"
+            )
+            if _nav_df is None or len(_nav_df) < 2:
+                return JSONResponse(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    content={"error": f"净值数据不足: {symbol}"},
+                )
+            _today_nav = float(_nav_df["单位净值"].iloc[-1])
+            _yesterday_nav = float(_nav_df["单位净值"].iloc[-2])
+            _today_date = str(_nav_df["净值日期"].iloc[-1])
+        except Exception as e:
+            logger.warning(f"基金净值获取失败 ({symbol}): {e}")
             return JSONResponse(
                 status_code=status.HTTP_404_NOT_FOUND,
-                content={"error": f"净值数据不足: {symbol}"},
+                content={"error": f"未找到基金净值: {symbol}"},
             )
-        _today_nav = float(_nav_df["单位净值"].iloc[-1])
-        _yesterday_nav = float(_nav_df["单位净值"].iloc[-2])
-        _today_date = str(_nav_df["净值日期"].iloc[-1])
-        _yesterday_date = str(_nav_df["净值日期"].iloc[-2])
-    except Exception as e:
-        logger.warning(f"基金净值获取失败 ({symbol}): {e}")
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content={"error": f"未找到基金净值: {symbol}"},
-        )
 
     # 3. Look up stock prices from spot caches (normalized English keys)
     _stocks = []
@@ -2593,23 +2610,14 @@ def fund_est_nav(
     )
     _raw_est = round(_today_nav * (1 + _weighted_change_today / 100), 4)
 
-    # 5. Error ratio — cached per trading day (only changes when fund publishes new NAV)
-    _er_key = f"fund_est_error:{symbol}"
-    with _spot_cache_lock:
-        _er_entry = _spot_cache.get(_er_key)
-
-    if _er_entry and _er_entry.get("nav_date") == _today_date:
-        # Cached — same trading day, reuse
-        _error_ratio = _er_entry["error_ratio"]
-        _calibrated_note = _er_entry.get("note")
-    else:
-        # Compute from yesterday's closing prices vs baseline
+    # 5. Error ratio — only compute if not cached from step 2
+    if not _er_entry or _er_entry.get("nav_date") != _today_date:
         _close_snapshot = {
             s["code"]: s["prev_close"] for s in _stocks if s["prev_close"] > 0
         }
         _bl = _pf_bl_entry["data"] if _pf_bl_entry else None
 
-        if _bl and len(_nav_df) >= 3:
+        if _bl and _nav_df is not True and len(_nav_df) >= 3:
             _day_before_nav = float(_nav_df["单位净值"].iloc[-3])
             _yesterday_change = 0.0
             _yesterday_total_w = 0.0
@@ -2639,10 +2647,12 @@ def fund_est_nav(
         with _spot_cache_lock:
             _spot_cache[_pf_bl_key] = {"data": _close_snapshot, "ts": time.time()}
 
-        # Cache error_ratio for the rest of this trading day
+        # Cache error_ratio + NAV for the rest of this trading day
         with _spot_cache_lock:
             _spot_cache[_er_key] = {
                 "error_ratio": _error_ratio,
+                "nav": _today_nav,
+                "yesterday_nav": _yesterday_nav,
                 "nav_date": _today_date,
                 "note": _calibrated_note,
                 "ts": time.time(),
