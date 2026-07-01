@@ -1,6 +1,6 @@
 # V1 API
 
-AKTools v0.1.3 — 44 endpoints across 10 categories, smart caching, multi-source switching.
+AKTools v0.2.3 — 43 endpoints across 10 categories, unified interface normalization, adaptive caching.
 
 ---
 

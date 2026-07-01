@@ -1,5 +1,11 @@
 # ChangeLog
 
+## 0.2.3
+
+### Changed
+
+- **Spot cache completely skipped during market close** — spot refresh only runs when `_is_market_open()` is True. Last market-hours cycle captured final prices; zero API calls during off-hours, nights, and weekends.
+
 ## 0.2.2
 
 ### Added

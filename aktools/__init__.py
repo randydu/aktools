@@ -108,5 +108,5 @@ Changelog
 """
 
 __title__ = "AKTools"
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 __author__ = "AKFamily"
