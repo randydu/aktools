@@ -33,7 +33,7 @@ AKTools wraps [AKShare](https://github.com/akfamily/akshare) functions as HTTP e
 
 Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). On restart, cache is restored instantly (warm flag set). A `cache_metadata` table stores the last persist timestamp — if caches are still fresh, the first-cycle static refresh is skipped and the normal schedule resumes, avoiding wasteful API calls on frequent restarts. Per-key pause/resume via `_paused_keys` set.
 
-## Public Endpoints (43 total)
+## Public Endpoints (45 total)
 
 ### A-Shares (China)
 
@@ -76,6 +76,8 @@ Cache persisted to `$AKTOOLS_DATA_DIR/cache.db` (WAL mode, crash-safe). On resta
 | `/api/public/v1/fund_lof_hist` | GET | On-demand | `symbol`(req), `period`(daily/weekly/monthly), `start_date`, `end_date`, `adjust`(`""`/`qfq`/`hfq`) |
 | `/api/public/v1/fund_lof_hist_intraday` | GET | On-demand | `symbol`(req), `period`(1/5/15/30/60), `start_date`, `end_date`, `adjust`(`""`/`qfq`/`hfq`) |
 | `/api/public/v1/fund_open_list` | GET | Daily, paginated | `page`, `page_size` |
+| `/api/public/v1/fund_est_nav` | GET | Portfolio 24h + error_ratio per-day | `symbol`(req) → estimated NAV, error_ratio, calibrated_est, holdings, market_open |
+| `/api/public/v1/fund_portfolio` | GET | 24h | `symbol`(req) → latest quarterly stock holdings |
 | `/api/public/v1/fund_open_hist` | GET | On-demand | `symbol`(req), `indicator`(单位净值走势/累计净值走势), `period`(1月/近1月, 3月/近3月, 6月/近6月, 1年/近1年, 3年, 5年, 今年来, 成立来) |
 | `/api/public/v1/fund_search` | GET | Cached | `q`(req), `limit`(20, 0=all) (all funds) |
 | `/api/public/v1/fund_open_search` | GET | Cached | `q`(req), `limit`(20, 0=all) (open-end only) |

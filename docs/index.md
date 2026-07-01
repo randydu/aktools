@@ -1,6 +1,6 @@
 ## AKTools
 
-AKTools v0.2.3 — HTTP API layer for AKShare with universal caching, multi-source switching, and 30+ endpoints across 10 financial categories.
+AKTools v0.2.4 — HTTP API layer for AKShare with universal caching, multi-source switching, and 30+ endpoints across 10 financial categories.
 
 [AKTools](https://github.com/akfamily/aktools) 是一款用于快速搭建 [AKShare](https://github.com/akfamily/akshare) HTTP API 的工具，
 通过 [AKTools](https://github.com/akfamily/aktools) 可以利用一行命令来启动 HTTP 服务，

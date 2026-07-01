@@ -1,6 +1,6 @@
 # V1 API
 
-AKTools v0.2.3 — 43 endpoints across 10 categories, unified interface normalization, adaptive caching.
+AKTools v0.2.4 — 45 endpoints across 10 categories, unified interface normalization, adaptive caching, fund NAV estimation.
 
 ---
 
@@ -238,6 +238,8 @@ AKTools v0.2.3 — 43 endpoints across 10 categories, unified interface normaliz
 | 端点 | 类型 |
 | ----- | ----- |
 | `GET /api/public/v1/fund_open_list` | 列表 + 最新净值 |
+| `GET /api/public/v1/fund_portfolio` | 基金持仓（最新季报），`?symbol=009568` |
+| `GET /api/public/v1/fund_est_nav` | 实时估值，`?symbol=009568` → 基于持仓+实时行情估算净值 |
 | `GET /api/public/v1/fund_open_hist` | 历史净值，`?symbol=710001&indicator=单位净值走势` |
 
 ### 搜索
