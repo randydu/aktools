@@ -986,13 +986,22 @@ logger = logging.getLogger(name="AKToolsLog")
 logger.setLevel(getattr(logging, _LOG_LEVEL, logging.INFO))
 
 # 创建一个TimedRotatingFileHandler来进行日志轮转
-handler = TimedRotatingFileHandler(
-    filename=os.path.join(_DATA_DIR, 'aktools.log'),
-    when='midnight', interval=1, backupCount=7, encoding='utf-8'
-)
+# 若文件不可写（Docker 挂载卷权限问题），回退到 stderr 输出
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+try:
+    handler = TimedRotatingFileHandler(
+        filename=os.path.join(_DATA_DIR, 'aktools.log'),
+        when='midnight', interval=1, backupCount=7, encoding='utf-8'
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+except PermissionError:
+    _fallback = logging.StreamHandler()
+    _fallback.setFormatter(formatter)
+    logger.addHandler(_fallback)
+    logger.warning(
+        f"日志文件不可写 ({_DATA_DIR}/aktools.log)，回退到 stderr 输出"
+    )
 
 # ── 启动横幅（分隔不同进程的日志） ────────────────────────────
 logger.info("=" * 60)
