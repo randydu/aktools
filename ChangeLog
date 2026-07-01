@@ -1,5 +1,20 @@
 # ChangeLog
 
+## 0.2.5
+
+### Fixed
+
+- **fund_est_nav used Chinese keys for normalized spot caches** — spot caches return English keys (`code`/`latest`/`prev_close`/`name`) after normalization refactor. Fund_est_nav was still using Chinese keys (`代码`/`最新价`/`昨收`/`名称`) — every stock lookup returned 0, causing all stocks to be `_missing`.
+- **fund_est_nav error_ratio stuck at 1.0 after first cache hit** — cached NAV set `_today_date` from stale cache, causing `_needs_recal` to always be False. Now re-fetches NAV when baseline close prices exist for recalibration.
+- **fund_est_nav O(n×m) stock lookup** — was scanning 5000+ rows per stock. Now builds `{code→row}` index from 4 spot caches once per call, O(1) per stock.
+- **fund_est_nav error_ratio recomputed on every call** — now cached per trading day (keyed by `nav_date`). Intraday calls skip the close-price baseline computation entirely.
+- **fund_est_nav NAV re-fetched on every call** — now cached alongside error_ratio in `fund_est_error:{symbol}`. Intraday calls skip the `fund_open_fund_info_em` AKShare call entirely.
+
+### Changed
+
+- **fund_est_nav response includes `market_open` flag** — clients can distinguish live estimates from stale off-hours values.
+- **`docs/api-reference.md`** updated with fund_est_nav + fund_portfolio sections, fixed `AKSHARE_DEFAULT_SOURCE` default (`eastmoney`→`auto`), added 503 error code.
+
 ## 0.2.4
 
 ### Added
