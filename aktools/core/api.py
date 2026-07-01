@@ -2687,6 +2687,7 @@ def fund_est_nav(
             "stocks_missing": len(_missing),
             "missing_codes": _missing,
             "total_weight_pct": round(_total_weight, 1),
+            "market_open": _is_market_open(),
             "calibration_note": _calibrated_note,
             "holdings": _stocks,
         },
