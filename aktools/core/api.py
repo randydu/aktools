@@ -2593,49 +2593,62 @@ def fund_est_nav(
     )
     _raw_est = round(_today_nav * (1 + _weighted_change_today / 100), 4)
 
-    # 5. Compute error ratio from yesterday's closing-price-based estimate
-    # Save current prev_close as close-price snapshot: {code: prev_close}
-    _close_snapshot = {
-        s["code"]: s["prev_close"] for s in _stocks if s["prev_close"] > 0
-    }
+    # 5. Error ratio — cached per trading day (only changes when fund publishes new NAV)
+    _er_key = f"fund_est_error:{symbol}"
+    with _spot_cache_lock:
+        _er_entry = _spot_cache.get(_er_key)
 
-    # Load baseline (stored on previous call) — represents day-before-yesterday's close
-    _bl = _pf_bl_entry["data"] if _pf_bl_entry else None
+    if _er_entry and _er_entry.get("nav_date") == _today_date:
+        # Cached — same trading day, reuse
+        _error_ratio = _er_entry["error_ratio"]
+        _calibrated_note = _er_entry.get("note")
+    else:
+        # Compute from yesterday's closing prices vs baseline
+        _close_snapshot = {
+            s["code"]: s["prev_close"] for s in _stocks if s["prev_close"] > 0
+        }
+        _bl = _pf_bl_entry["data"] if _pf_bl_entry else None
 
-    if _bl and len(_nav_df) >= 3:
-        # Compute yesterday's estimated close using baseline → calculate true error_ratio
-        _day_before_nav = float(_nav_df["单位净值"].iloc[-3])
-        _yesterday_change = 0.0
-        _yesterday_total_w = 0.0
-        for s in _stocks:
-            _code = s["code"]
-            _baseline_close = _bl.get(_code)
-            if _baseline_close and _baseline_close > 0 and s["prev_close"] > 0:
-                _chg = (s["prev_close"] / _baseline_close - 1) * 100
-                _yesterday_change += s["weight_pct"] * _chg
-                _yesterday_total_w += s["weight_pct"]
+        if _bl and len(_nav_df) >= 3:
+            _day_before_nav = float(_nav_df["单位净值"].iloc[-3])
+            _yesterday_change = 0.0
+            _yesterday_total_w = 0.0
+            for s in _stocks:
+                _code = s["code"]
+                _baseline_close = _bl.get(_code)
+                if _baseline_close and _baseline_close > 0 and s["prev_close"] > 0:
+                    _chg = (s["prev_close"] / _baseline_close - 1) * 100
+                    _yesterday_change += s["weight_pct"] * _chg
+                    _yesterday_total_w += s["weight_pct"]
 
-        if _yesterday_total_w > 0:
-            _yesterday_change /= _yesterday_total_w
-            _yesterday_est = _day_before_nav * (1 + _yesterday_change / 100)
-            _error_ratio = (
-                round(_yesterday_nav / _yesterday_est, 6)
-                if _yesterday_est else 1.0
-            )
+            if _yesterday_total_w > 0:
+                _yesterday_change /= _yesterday_total_w
+                _yesterday_est = _day_before_nav * (1 + _yesterday_change / 100)
+                _error_ratio = (
+                    round(_yesterday_nav / _yesterday_est, 6)
+                    if _yesterday_est else 1.0
+                )
+            else:
+                _error_ratio = 1.0
+            _calibrated_note = None
         else:
             _error_ratio = 1.0
-    else:
-        # First call or insufficient data — not yet calibrated
-        _error_ratio = 1.0
+            _calibrated_note = "首次调用，尚未校准（次日将基于收盘价计算误差率）"
 
-    # Update baseline to current prev_close for next call
-    with _spot_cache_lock:
-        _spot_cache[_pf_bl_key] = {"data": _close_snapshot, "ts": time.time()}
+        # Update baseline to current prev_close for next trading day
+        with _spot_cache_lock:
+            _spot_cache[_pf_bl_key] = {"data": _close_snapshot, "ts": time.time()}
+
+        # Cache error_ratio for the rest of this trading day
+        with _spot_cache_lock:
+            _spot_cache[_er_key] = {
+                "error_ratio": _error_ratio,
+                "nav_date": _today_date,
+                "note": _calibrated_note,
+                "ts": time.time(),
+            }
 
     _calibrated = round(_raw_est * _error_ratio, 4)
-    _calibrated_note = (
-        None if _bl else "首次调用，尚未校准（次日将基于收盘价计算误差率）"
-    )
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
