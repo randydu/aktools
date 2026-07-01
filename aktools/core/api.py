@@ -2450,22 +2450,29 @@ def fund_est_nav(
 
     Algorithm:
       1. Load latest quarterly stock portfolio (cached 24h).
-      2. Get two most recent NAVs from fund history.
+      2. Get 3 most recent NAVs from fund history.
       3. For each held stock: look up prev_close + latest from spot caches.
-      4. Compute yesterday's calibration error:
-           est_close = prev_day_NAV × (1 + Σ(w × close_change))
-           error_ratio = actual_NAV / est_close
-      5. Compute today's raw estimate:
-           raw = yesterday_NAV × (1 + Σ(w × today_change))
-      6. Return {raw, error_ratio, calibrated = raw × error_ratio}
+      4. Save current prev_close as a baseline snapshot.
+      5. On next call: baseline exists → compute yesterday's close-to-close
+         change for each stock. Estimate yesterday's NAV from portfolio +
+         close changes, compare to actual published NAV → error_ratio.
+      6. Compute today's raw estimate:
+           raw = today_NAV × (1 + Σ(w × intraday_change))
+      7. calibrated = raw × error_ratio
+      8. Update baseline snapshot to current prev_close for next cycle.
+
+    First call returns error_ratio=1.0 (not yet calibrated). Subsequent
+    calls use closing-price-based calibration from the prior trading day.
     """
     import pandas as pd
     from datetime import date as _date
 
     # 1. Get portfolio (cached)
     _pf_key = f"fund_portfolio:{symbol}"
+    _pf_bl_key = f"fund_portfolio_bl:{symbol}"  # close-price baseline
     with _spot_cache_lock:
         _pf_entry = _spot_cache.get(_pf_key)
+        _pf_bl_entry = _spot_cache.get(_pf_bl_key)
     if _pf_entry is not None and (time.time() - _pf_entry["ts"]) < _FUND_PORTFOLIO_CACHE_TTL:
         _pf_data = _pf_entry["data"]
     else:
@@ -2479,8 +2486,11 @@ def fund_est_nav(
             _latest_q = _pf_df["季度"].iloc[0]
             _pf_df = _pf_df[_pf_df["季度"] == _latest_q]
             _pf_data = _pf_df.to_dict(orient="records")
+            # Save portfolio AND clear baseline (will be rebuilt below)
             with _spot_cache_lock:
                 _spot_cache[_pf_key] = {"data": _pf_data, "ts": time.time()}
+                _spot_cache.pop(_pf_bl_key, None)
+            _pf_bl_entry = None
         except Exception as e:
             logger.warning(f"基金持仓获取失败 ({symbol}): {e}")
             return JSONResponse(
@@ -2583,18 +2593,49 @@ def fund_est_nav(
     )
     _raw_est = round(_today_nav * (1 + _weighted_change_today / 100), 4)
 
-    # 5. Compute error ratio from yesterday's actual vs estimated
-    # Yesterday's estimated close = previous-previous-day NAV × (1 + yesterday's close change)
-    # We approximate yesterday's change using today's prev_close vs day-before's prev_close
-    # Actually: we need yesterday's intraday change. We can compute from prev_close changes.
-    # prev_close in spot is yesterday's close. But we don't have day-before close.
-    # Approximate: error_ratio = today_nav / yesterday_nav (just the raw NAV change)
-    # Better: use 1-2 recent error ratios as calibration
-    _error_ratio = round(_today_nav / _yesterday_nav, 6) if _yesterday_nav else 1.0
-    # Note: true error_ratio needs yesterday's close prices → full calculation
-    # For now, use NAV day-over-day as rough proxy; improve with stock_cn_hist later
+    # 5. Compute error ratio from yesterday's closing-price-based estimate
+    # Save current prev_close as close-price snapshot: {code: prev_close}
+    _close_snapshot = {
+        s["code"]: s["prev_close"] for s in _stocks if s["prev_close"] > 0
+    }
+
+    # Load baseline (stored on previous call) — represents day-before-yesterday's close
+    _bl = _pf_bl_entry["data"] if _pf_bl_entry else None
+
+    if _bl and len(_nav_df) >= 3:
+        # Compute yesterday's estimated close using baseline → calculate true error_ratio
+        _day_before_nav = float(_nav_df["单位净值"].iloc[-3])
+        _yesterday_change = 0.0
+        _yesterday_total_w = 0.0
+        for s in _stocks:
+            _code = s["code"]
+            _baseline_close = _bl.get(_code)
+            if _baseline_close and _baseline_close > 0 and s["prev_close"] > 0:
+                _chg = (s["prev_close"] / _baseline_close - 1) * 100
+                _yesterday_change += s["weight_pct"] * _chg
+                _yesterday_total_w += s["weight_pct"]
+
+        if _yesterday_total_w > 0:
+            _yesterday_change /= _yesterday_total_w
+            _yesterday_est = _day_before_nav * (1 + _yesterday_change / 100)
+            _error_ratio = (
+                round(_yesterday_nav / _yesterday_est, 6)
+                if _yesterday_est else 1.0
+            )
+        else:
+            _error_ratio = 1.0
+    else:
+        # First call or insufficient data — not yet calibrated
+        _error_ratio = 1.0
+
+    # Update baseline to current prev_close for next call
+    with _spot_cache_lock:
+        _spot_cache[_pf_bl_key] = {"data": _close_snapshot, "ts": time.time()}
 
     _calibrated = round(_raw_est * _error_ratio, 4)
+    _calibrated_note = (
+        None if _bl else "首次调用，尚未校准（次日将基于收盘价计算误差率）"
+    )
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
@@ -2610,6 +2651,7 @@ def fund_est_nav(
             "stocks_missing": len(_missing),
             "missing_codes": _missing,
             "total_weight_pct": round(_total_weight, 1),
+            "calibration_note": _calibrated_note,
             "holdings": _stocks,
         },
     )
