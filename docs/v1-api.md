@@ -1,6 +1,6 @@
 # V1 API
 
-AKTools v0.2.5 — 45 endpoints across 10 categories, unified interface normalization, adaptive caching, fund NAV estimation.
+AKTools v0.2.6 — 45 endpoints across 10 categories, unified interface normalization, adaptive caching, fund NAV estimation.
 
 ---
 

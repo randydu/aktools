@@ -1,5 +1,11 @@
 # ChangeLog
 
+## 0.2.6
+
+### Fixed
+
+- **Docker container crash on mount permission error** — `TimedRotatingFileHandler` at module init crashes gunicorn worker when `/data/aktools/aktools.log` is owned by root (Docker volume). Now catches `PermissionError` and falls back to stderr output with a warning.
+
 ## 0.2.5
 
 ### Fixed
